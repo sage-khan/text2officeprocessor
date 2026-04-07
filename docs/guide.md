@@ -10,17 +10,23 @@ The core principle is **deterministic, template-driven rendering**: every replac
 
 ## Installation
 
-### Local (Python virtualenv)
+### From PyPI (recommended for most users)
 
 ```bash
-git clone https://github.com/sage-khan/md2office
-cd md2office
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .          # installs the md2office CLI command
+pip install md2office
 ```
 
-After `pip install -e .`, the `md2office` command is available system-wide via the venv binary.
+That's it. The `md2office` command is immediately available, and the bundled generic templates are included — no template file needed to get started.
+
+### From source (for development or contribution)
+
+```bash
+git clone https://github.com/sage-khan/text2officeprocessor
+cd text2officeprocessor
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .          # installs the md2office CLI command in editable mode
+```
 
 ### Docker
 
@@ -34,13 +40,14 @@ See the [Docker section](#running-with-docker) for full usage.
 
 ## Invoking the Tool
 
-### From within the project
+### After pip install (PyPI or editable)
 
 ```bash
-python -m src.cli.main convert --help
+md2office --help
+md2office convert --help
 ```
 
-### As a CLI command (after pip install -e .)
+### As a CLI command (editable install, venv explicit path)
 
 From **any directory** on the system, using the venv binary directly:
 
@@ -85,9 +92,25 @@ docker run --rm \
 
 ## Quick Start Examples
 
+### Zero-config — no template needed
+
+After install, the bundled `generic-slides.pptx` is used automatically when you omit `--template`:
+
+```bash
+md2office convert \
+  --slides-md slides.md \
+  --output    outputs/presentation.pptx
+```
+
+See what templates are bundled:
+
+```bash
+md2office templates
+```
+
 ### PPTX from pre-authored slides markdown
 
-The fastest path. You write a structured `slides.md` and point to your template:
+Use your own branded template by passing `--template`:
 
 ```bash
 md2office convert \
@@ -343,12 +366,22 @@ text2officeprocessor/
 │   ├── test_pptx_engine.py
 │   ├── test_docx_engine.py
 │   └── test_xlsx_engine.py
+├── src/
+│   └── data/                     # Bundled package data (included in PyPI wheel)
+│       ├── templates/
+│       │   ├── generic-slides.pptx
+│       │   └── generic-document.docx
+│       └── config/
+│           ├── default_rules.yaml
+│           └── llm_config.yaml
 ├── docs/
 │   ├── guide.md                  # This file
 │   ├── architecture.drawio       # System architecture diagram (draw.io)
 │   └── development/
 │       ├── changelog.md
 │       └── diagnostics.md
+├── scripts/
+│   └── create_bundled_templates.py  # Regenerate bundled templates
 ├── Dockerfile                    # Standard Docker image
 ├── docker-compose.yml            # Compose for local dev + Ollama LLM
 ├── md2office                     # Shell wrapper (add to PATH for system-wide use)

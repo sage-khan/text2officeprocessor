@@ -2,6 +2,7 @@
 
 > Convert **Markdown / Text / HTML** to **PPTX, DOCX, and XLSX** using template-driven deterministic rendering with optional LLM normalization.
 
+[![PyPI](https://img.shields.io/pypi/v/md2office.svg)](https://pypi.org/project/md2office/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -31,22 +32,41 @@ MD2Office takes your content in plain text formats and converts it into professi
 ### Install
 
 ```bash
+pip install md2office
+```
+
+The `md2office` command is immediately available. Bundled generic templates are included — no template file needed to get started.
+
+**From source** (for development or contribution):
+
+```bash
 git clone https://github.com/sage-khan/text2officeprocessor
 cd text2officeprocessor
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .          # registers the md2office command in your PATH
+pip install -r requirements.txt && pip install -e .
 ```
 
-After `pip install -e .` the `md2office` command is available in the activated venv. Add the project to your `PATH` (see [docs/guide.md](docs/guide.md#invoking-the-tool)) to use it from any directory without activating the venv.
+### Zero-config — try it immediately
 
-### Generate a PPTX from pre-authored slides markdown
+No template file needed. The bundled generic template is used automatically:
+
+```bash
+md2office convert --slides-md slides.md --output outputs/presentation.pptx
+```
+
+See what templates are bundled:
+
+```bash
+md2office templates
+```
+
+### Generate a PPTX with your own template
 
 ```bash
 md2office convert \
   --slides-md slides.md \
-  --template template.pptx \
-  --output outputs/presentation.pptx \
+  --template  template.pptx \
+  --output    outputs/presentation.pptx \
   --type pptx
 ```
 

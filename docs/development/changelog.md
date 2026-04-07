@@ -63,6 +63,30 @@ All changes are recorded here with timestamps. Append-only.
 - `dev` branch is the active development branch; all work goes here first
 - Tagged `v0.1.0` on `main`
 
+---
+
+## [0.2.0] — 2026-04-07
+
+### Added
+
+**PyPI-ready packaging:**
+- `pyproject.toml` URLs corrected to `sage-khan/text2officeprocessor`
+- `src/data/` package created to hold bundled templates and config inside the Python package tree
+- `[tool.setuptools.package-data]` wired to include `*.pptx`, `*.docx`, `*.yaml` from `src.data`
+- `MANIFEST.in` added for sdist completeness
+- Wheel verified: `src/data/templates/` and `src/data/config/` present in `md2office-0.2.0-py3-none-any.whl`
+
+**Bundled generic templates (`templates/` + `src/data/templates/`):**
+- `generic-slides.pptx` — 13-slide template bank matching all `DEFAULT_TEMPLATE_MAP` intents; placeholder strings align exactly with `config/default_rules.yaml`
+- `generic-document.docx` — branded DOCX template with Heading 1/2/3 and List Bullet styles
+- Generated deterministically via `scripts/create_bundled_templates.py` (committed, reproducible)
+
+**CLI improvements:**
+- `md2office templates` subcommand — lists all bundled templates with slide counts and paths
+- `--template` is now optional for PPTX and DOCX; falls back to bundled template automatically
+- `_resolve_template()` uses `importlib.resources` for PyPI installs; falls back to file path for editable installs
+- Bundled template auto-selection printed to stdout: `Using bundled template: generic-slides.pptx`
+
 **Known limitations (Phase 2 scope):**
 - Draw.io flowchart → PNG → slide insertion not yet implemented
 - LLM validation pass (semantic coherence check) not yet wired

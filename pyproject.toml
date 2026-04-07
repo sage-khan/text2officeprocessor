@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [
-    { name = "Muhammad Danyal (Sage) Khan", email = "dan@go.ugr.es" }
+    { name = "Muhammad Danyal (Sage) Khan", email = "sagekhanofficial@gmail.com" }
 ]
 keywords = ["markdown", "pptx", "docx", "xlsx", "converter", "template", "llm", "presentation"]
 classifiers = [
@@ -51,13 +51,21 @@ dev = [
 md2office = "src.cli.main:main"
 
 [project.urls]
-Homepage = "https://github.com/sage-khan/md2office"
-Repository = "https://github.com/sage-khan/md2office"
-"Bug Tracker" = "https://github.com/sage-khan/md2office/issues"
+Homepage = "https://github.com/sage-khan/text2officeprocessor"
+Repository = "https://github.com/sage-khan/text2officeprocessor"
+"Bug Tracker" = "https://github.com/sage-khan/text2officeprocessor/issues"
+"Documentation" = "https://github.com/sage-khan/text2officeprocessor/blob/main/docs/guide.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+"src.data" = [
+    "templates/*.pptx",
+    "templates/*.docx",
+    "config/*.yaml",
+]
 
 [tool.ruff]
 line-length = 120

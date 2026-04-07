@@ -35,6 +35,34 @@ app = typer.Typer(
     add_completion=False,
 )
 
+# ---------------------------------------------------------------------------
+# Bundled template resolution
+# Supports both editable installs (src/data/templates/) and installed packages
+# (via importlib.resources).
+# ---------------------------------------------------------------------------
+
+def _bundled_templates_dir() -> Path:
+    """Return the directory containing bundled templates, regardless of install method."""
+    try:
+        from importlib.resources import files
+        return Path(str(files("src.data").joinpath("templates")))
+    except Exception:
+        return Path(__file__).parent.parent / "data" / "templates"
+
+
+def _resolve_template(template: Optional[Path], output_type: "OutputFormat") -> Optional[Path]:
+    """Return the template path, falling back to the bundled generic template."""
+    if template:
+        return template
+    tdir = _bundled_templates_dir()
+    pptx = tdir / "generic-slides.pptx"
+    docx = tdir / "generic-document.docx"
+    if output_type.value == "pptx" and pptx.exists():
+        return pptx
+    if output_type.value == "docx" and docx.exists():
+        return docx
+    return None
+
 LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING}
 
 
@@ -55,7 +83,8 @@ def convert(
         help="Pre-authored slides markdown file (## SLIDE N format). Bypasses LLM normalization.",
     ),
     template: Optional[Path] = typer.Option(
-        None, "--template", "-t", help="Template .pptx or .docx file."
+        None, "--template", "-t",
+        help="Template .pptx or .docx file. Omit to use the bundled generic template.",
     ),
     output: Path = typer.Option(..., "--output", "-o", help="Output file path."),
     output_type: OutputFormat = typer.Option(
@@ -90,11 +119,15 @@ def convert(
         except Exception as exc:
             logger.warning("Could not initialize LLM provider '%s': %s — proceeding without LLM.", llm_provider, exc)
 
+    resolved_template = _resolve_template(template, output_type)
+    if resolved_template and resolved_template != template:
+        typer.echo(f"  Using bundled template: {resolved_template.name}")
+
     try:
         if output_type == OutputFormat.PPTX:
-            _run_pptx(input_file, slides_md, template, output, provider, validate, config, logger)
+            _run_pptx(input_file, slides_md, resolved_template, output, provider, validate, config, logger)
         elif output_type == OutputFormat.DOCX:
-            _run_docx(input_file, template, output, provider, validate, config, logger)
+            _run_docx(input_file, resolved_template, output, provider, validate, config, logger)
         elif output_type == OutputFormat.XLSX:
             _run_xlsx(input_file, output, provider, validate, logger)
     except MD2OfficeError as exc:
@@ -242,6 +275,33 @@ def analyze(
                                 f'  Shape {j} "{shape.name}" para[{k}] run[{r}]: {repr(run.text)}'
                             )
         typer.echo("")
+
+
+@app.command("templates")
+def list_templates() -> None:
+    """List the bundled generic templates included with md2office."""
+    typer.echo("\nBundled templates (use with --template or omit for auto-selection):\n")
+
+    found_any = False
+    for path in sorted(_bundled_templates_dir().glob("*")):
+        if path.suffix not in (".pptx", ".docx"):
+            continue
+        found_any = True
+        size_kb = path.stat().st_size // 1024
+        if path.suffix == ".pptx":
+            try:
+                from pptx import Presentation
+                prs = Presentation(str(path))
+                detail = f"{len(prs.slides)} slides"
+            except Exception:
+                detail = "PPTX"
+        else:
+            detail = "DOCX"
+        typer.echo(f"  {path.name:<35} {detail:<15} {size_kb} KB")
+        typer.echo(f"  Path: {path}\n")
+
+    if not found_any:
+        typer.echo("  No bundled templates found. Run: python scripts/create_bundled_templates.py")
 
 
 def main() -> None:
