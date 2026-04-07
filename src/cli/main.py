@@ -8,6 +8,10 @@ Usage:
     md2office convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
     md2office convert --slides-md slides.md --template template.pptx --output out.pptx --config my-rules.yaml
     md2office analyze template.pptx
+    md2office batch --input-dir ./content/ --output-dir ./outputs/ --type pptx --template template.pptx
+    md2office batch --input-dir ./content/ --output-dir ./outputs/ --type xlsx
+    md2office drawio-export diagram.drawio --output diagram.png
+    md2office serve [--host 0.0.0.0] [--port 8000]
 """
 
 from __future__ import annotations
@@ -35,6 +39,34 @@ app = typer.Typer(
     add_completion=False,
 )
 
+# ---------------------------------------------------------------------------
+# Bundled template resolution
+# Supports both editable installs (src/data/templates/) and installed packages
+# (via importlib.resources).
+# ---------------------------------------------------------------------------
+
+def _bundled_templates_dir() -> Path:
+    """Return the directory containing bundled templates, regardless of install method."""
+    try:
+        from importlib.resources import files
+        return Path(str(files("src.data").joinpath("templates")))
+    except Exception:
+        return Path(__file__).parent.parent / "data" / "templates"
+
+
+def _resolve_template(template: Optional[Path], output_type: "OutputFormat") -> Optional[Path]:
+    """Return the template path, falling back to the bundled generic template."""
+    if template:
+        return template
+    tdir = _bundled_templates_dir()
+    pptx = tdir / "generic-slides.pptx"
+    docx = tdir / "generic-document.docx"
+    if output_type.value == "pptx" and pptx.exists():
+        return pptx
+    if output_type.value == "docx" and docx.exists():
+        return docx
+    return None
+
 LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING}
 
 
@@ -55,7 +87,8 @@ def convert(
         help="Pre-authored slides markdown file (## SLIDE N format). Bypasses LLM normalization.",
     ),
     template: Optional[Path] = typer.Option(
-        None, "--template", "-t", help="Template .pptx or .docx file."
+        None, "--template", "-t",
+        help="Template .pptx or .docx file. Omit to use the bundled generic template.",
     ),
     output: Path = typer.Option(..., "--output", "-o", help="Output file path."),
     output_type: OutputFormat = typer.Option(
@@ -68,6 +101,10 @@ def convert(
         None, "--llm-model", help="Model name for the LLM provider."
     ),
     validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after rendering."),
+    llm_validate: bool = typer.Option(
+        False, "--llm-validate/--no-llm-validate",
+        help="Run an LLM semantic coherence check after rendering (requires --llm).",
+    ),
     config: Optional[Path] = typer.Option(
         None, "--config", "-c",
         help="Path to a custom rules YAML file (overrides config/default_rules.yaml).",
@@ -90,13 +127,24 @@ def convert(
         except Exception as exc:
             logger.warning("Could not initialize LLM provider '%s': %s — proceeding without LLM.", llm_provider, exc)
 
+    resolved_template = _resolve_template(template, output_type)
+    if resolved_template and resolved_template != template:
+        typer.echo(f"  Using bundled template: {resolved_template.name}")
+
+    llm_validator = None
+    if llm_validate and provider:
+        from src.core.validation.validator import LLMValidator
+        llm_validator = LLMValidator(provider=provider)
+    elif llm_validate and not provider:
+        typer.echo("  [WARN] --llm-validate requires --llm to be set. Skipping LLM validation.")
+
     try:
         if output_type == OutputFormat.PPTX:
-            _run_pptx(input_file, slides_md, template, output, provider, validate, config, logger)
+            _run_pptx(input_file, slides_md, resolved_template, output, provider, validate, config, logger, llm_validator)
         elif output_type == OutputFormat.DOCX:
-            _run_docx(input_file, template, output, provider, validate, config, logger)
+            _run_docx(input_file, resolved_template, output, provider, validate, config, logger, llm_validator)
         elif output_type == OutputFormat.XLSX:
-            _run_xlsx(input_file, output, provider, validate, logger)
+            _run_xlsx(input_file, output, provider, validate, logger, llm_validator)
     except MD2OfficeError as exc:
         typer.echo(f"\n[ERROR] {exc}", err=True)
         raise typer.Exit(code=1)
@@ -115,6 +163,7 @@ def _run_pptx(
     validate: bool,
     config: Optional[Path],
     logger: logging.Logger,
+    llm_validator=None,
 ) -> None:
     from src.core.llm.normalizer import LLMNormalizer
 
@@ -151,6 +200,12 @@ def _run_pptx(
         validation = validator.validate_pptx(result_path)
         validator.print_report(validation)
 
+    if llm_validator:
+        from src.core.validation.validator import LLMValidator
+        llm_result = llm_validator.validate(result_path)
+        typer.echo("  LLM semantic validation:")
+        ProgrammaticValidator().print_report(llm_result)
+
 
 def _run_docx(
     input_file: Optional[Path],
@@ -160,6 +215,7 @@ def _run_docx(
     validate: bool,
     config: Optional[Path],
     logger: logging.Logger,
+    llm_validator=None,
 ) -> None:
     if not input_file:
         typer.echo("[ERROR] --input is required for DOCX output.", err=True)
@@ -182,6 +238,11 @@ def _run_docx(
         validation = validator.validate_docx(result_path)
         validator.print_report(validation)
 
+    if llm_validator:
+        llm_result = llm_validator.validate(result_path)
+        typer.echo("  LLM semantic validation:")
+        ProgrammaticValidator().print_report(llm_result)
+
 
 def _run_xlsx(
     input_file: Optional[Path],
@@ -189,6 +250,7 @@ def _run_xlsx(
     provider,
     validate: bool,
     logger: logging.Logger,
+    llm_validator=None,
 ) -> None:
     if not input_file:
         typer.echo("[ERROR] --input is required for XLSX output.", err=True)
@@ -207,6 +269,11 @@ def _run_xlsx(
         validator = ProgrammaticValidator()
         validation = validator.validate_xlsx(result_path)
         validator.print_report(validation)
+
+    if llm_validator:
+        llm_result = llm_validator.validate(result_path)
+        typer.echo("  LLM semantic validation:")
+        ProgrammaticValidator().print_report(llm_result)
 
 
 @app.command("analyze")
@@ -242,6 +309,368 @@ def analyze(
                                 f'  Shape {j} "{shape.name}" para[{k}] run[{r}]: {repr(run.text)}'
                             )
         typer.echo("")
+
+
+@app.command("batch")
+def batch(
+    input_dir: Path = typer.Option(
+        ..., "--input-dir", "-i",
+        help="Directory containing input files (.md / .txt / .html).",
+    ),
+    output_dir: Path = typer.Option(
+        ..., "--output-dir", "-o",
+        help="Directory where output files will be written (created if absent).",
+    ),
+    output_type: OutputFormat = typer.Option(
+        OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
+    ),
+    template: Optional[Path] = typer.Option(
+        None, "--template", "-t",
+        help="Template .pptx or .docx file. Omit to use the bundled generic template.",
+    ),
+    glob_pattern: str = typer.Option(
+        "*", "--pattern", "-p",
+        help="Glob pattern to filter input files, e.g. '*.md' or 'section-*.html'.",
+    ),
+    llm_provider: Optional[str] = typer.Option(
+        None, "--llm", help="LLM provider: ollama | openai | claude | openrouter | groq."
+    ),
+    llm_model: Optional[str] = typer.Option(
+        None, "--llm-model", help="Model name for the LLM provider."
+    ),
+    validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after each render."),
+    llm_validate: bool = typer.Option(
+        False, "--llm-validate/--no-llm-validate",
+        help="Run an LLM semantic coherence check after each render (requires --llm).",
+    ),
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c",
+        help="Path to a custom rules YAML file.",
+    ),
+    fail_fast: bool = typer.Option(
+        False, "--fail-fast/--no-fail-fast",
+        help="Stop immediately on first error instead of continuing with remaining files.",
+    ),
+    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+) -> None:
+    """Convert every input file in a directory to the chosen output format."""
+    _setup_logging(log_level)
+    logger = logging.getLogger("md2office.batch")
+
+    if not input_dir.is_dir():
+        typer.echo(f"[ERROR] Input directory not found: {input_dir}", err=True)
+        raise typer.Exit(code=1)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Collect candidate files matching the pattern and supported formats
+    supported_suffixes = {".md", ".txt", ".html", ".htm"}
+    candidates = sorted(
+        f for f in input_dir.glob(glob_pattern)
+        if f.is_file() and f.suffix.lower() in supported_suffixes
+    )
+
+    if not candidates:
+        typer.echo(
+            f"[WARN] No supported files found in '{input_dir}' matching '{glob_pattern}'. "
+            "Supported extensions: .md .txt .html .htm"
+        )
+        raise typer.Exit(code=0)
+
+    # Resolve LLM provider once for the whole batch
+    provider = None
+    if llm_provider:
+        try:
+            llm_config = {}
+            if llm_model:
+                llm_config["model"] = llm_model
+            provider = build_provider(llm_provider, llm_config)
+            logger.info("Using LLM provider: %s", llm_provider)
+        except Exception as exc:
+            logger.warning(
+                "Could not initialize LLM provider '%s': %s — proceeding without LLM.",
+                llm_provider, exc,
+            )
+
+    resolved_template = _resolve_template(template, output_type)
+    if resolved_template and resolved_template != template:
+        typer.echo(f"  Using bundled template: {resolved_template.name}")
+
+    llm_validator = None
+    if llm_validate and provider:
+        from src.core.validation.validator import LLMValidator
+        llm_validator = LLMValidator(provider=provider)
+    elif llm_validate and not provider:
+        typer.echo("  [WARN] --llm-validate requires --llm to be set. Skipping LLM validation.")
+
+    ext_map = {OutputFormat.PPTX: ".pptx", OutputFormat.DOCX: ".docx", OutputFormat.XLSX: ".xlsx"}
+    out_ext = ext_map[output_type]
+
+    total = len(candidates)
+    succeeded: list[Path] = []
+    failed: list[tuple[Path, str]] = []
+
+    typer.echo(f"\nBatch: {total} file(s) → {output_type.value.upper()} in '{output_dir}'\n")
+
+    for idx, input_file in enumerate(candidates, start=1):
+        output_file = output_dir / (input_file.stem + out_ext)
+        typer.echo(f"  [{idx}/{total}] {input_file.name} → {output_file.name}")
+        try:
+            if output_type == OutputFormat.PPTX:
+                _run_pptx(input_file, None, resolved_template, output_file, provider, validate, config, logger, llm_validator)
+            elif output_type == OutputFormat.DOCX:
+                _run_docx(input_file, resolved_template, output_file, provider, validate, config, logger, llm_validator)
+            elif output_type == OutputFormat.XLSX:
+                _run_xlsx(input_file, output_file, provider, validate, logger, llm_validator)
+            succeeded.append(output_file)
+        except Exception as exc:
+            msg = str(exc)
+            failed.append((input_file, msg))
+            typer.echo(f"    [FAILED] {msg}", err=True)
+            if fail_fast:
+                typer.echo("\n[ABORTED] --fail-fast is set. Stopping batch.", err=True)
+                raise typer.Exit(code=1)
+
+    # Summary
+    typer.echo(f"\n{'='*50}")
+    typer.echo(f"Batch complete: {len(succeeded)}/{total} succeeded, {len(failed)} failed.")
+    if failed:
+        typer.echo("\nFailed files:")
+        for path, reason in failed:
+            typer.echo(f"  {path.name}: {reason}")
+        raise typer.Exit(code=1)
+
+
+@app.command("watch")
+def watch(
+    input_file: Path = typer.Option(
+        ..., "--input", "-i", help="Input .md / .txt / .html file to watch."
+    ),
+    output: Path = typer.Option(..., "--output", "-o", help="Output file path."),
+    output_type: OutputFormat = typer.Option(
+        OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
+    ),
+    template: Optional[Path] = typer.Option(
+        None, "--template", "-t",
+        help="Template .pptx or .docx file. Omit to use the bundled generic template.",
+    ),
+    slides_md: Optional[Path] = typer.Option(
+        None, "--slides-md", "-s",
+        help="Pre-authored slides markdown. Watched alongside --input when provided.",
+    ),
+    llm_provider: Optional[str] = typer.Option(
+        None, "--llm", help="LLM provider for normalization."
+    ),
+    llm_model: Optional[str] = typer.Option(
+        None, "--llm-model", help="Model name for the LLM provider."
+    ),
+    validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after each regeneration."),
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c", help="Path to a custom rules YAML file."
+    ),
+    debounce: float = typer.Option(
+        1.0, "--debounce", help="Seconds to wait after a change before regenerating (default: 1.0)."
+    ),
+    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+) -> None:
+    """Watch an input file and auto-regenerate the output on every save."""
+    _setup_logging(log_level)
+    logger = logging.getLogger("md2office.watch")
+
+    if not input_file.exists():
+        typer.echo(f"[ERROR] Input file not found: {input_file}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        from watchdog.events import FileSystemEventHandler
+        from watchdog.observers import Observer
+    except ImportError:
+        typer.echo("[ERROR] watchdog is not installed. Run: pip install watchdog", err=True)
+        raise typer.Exit(code=1)
+
+    provider = None
+    if llm_provider:
+        try:
+            llm_cfg: dict = {}
+            if llm_model:
+                llm_cfg["model"] = llm_model
+            provider = build_provider(llm_provider, llm_cfg)
+        except Exception as exc:
+            logger.warning("Could not initialize LLM provider: %s", exc)
+
+    resolved_template = _resolve_template(template, output_type)
+    if resolved_template and resolved_template != template:
+        typer.echo(f"  Using bundled template: {resolved_template.name}")
+
+    # Files to monitor (deduped)
+    watched_files = {input_file.resolve()}
+    if slides_md:
+        watched_files.add(slides_md.resolve())
+
+    import threading
+    import time
+
+    _timer: list = [None]
+    _lock = threading.Lock()
+
+    def _regenerate() -> None:
+        typer.echo(f"\n[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] Change detected — regenerating...")
+        try:
+            if output_type == OutputFormat.PPTX:
+                _run_pptx(input_file, slides_md, resolved_template, output, provider, validate, config, logger)
+            elif output_type == OutputFormat.DOCX:
+                _run_docx(input_file, resolved_template, output, provider, validate, config, logger)
+            elif output_type == OutputFormat.XLSX:
+                _run_xlsx(input_file, output, provider, validate, logger)
+            typer.echo("  Done.")
+        except Exception as exc:
+            typer.echo(f"  [ERROR] {exc}", err=True)
+
+    def _schedule_regenerate() -> None:
+        with _lock:
+            if _timer[0] is not None:
+                _timer[0].cancel()
+            _timer[0] = threading.Timer(debounce, _regenerate)
+            _timer[0].start()
+
+    class _ChangeHandler(FileSystemEventHandler):
+        def on_modified(self, event):
+            if Path(event.src_path).resolve() in watched_files:
+                _schedule_regenerate()
+
+        def on_created(self, event):
+            if Path(event.src_path).resolve() in watched_files:
+                _schedule_regenerate()
+
+    # Run once immediately on start
+    _regenerate()
+
+    watch_dirs = {p.parent for p in watched_files}
+    observer = Observer()
+    handler = _ChangeHandler()
+    for d in watch_dirs:
+        observer.schedule(handler, str(d), recursive=False)
+
+    observer.start()
+    file_list = ", ".join(p.name for p in watched_files)
+    typer.echo(f"\nWatching: {file_list}  (Ctrl+C to stop)\n")
+
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        observer.stop()
+        typer.echo("\nWatch mode stopped.")
+    finally:
+        observer.join()
+
+
+@app.command("drawio-export")
+def drawio_export(
+    input_file: Path = typer.Argument(..., help="Source .drawio file to export."),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Output PNG path. Defaults to <input>.png alongside the source file.",
+    ),
+    scale: str = typer.Option("2", "--scale", "-s", help="Export scale factor (default: 2 for 2x resolution)."),
+    border: str = typer.Option("10", "--border", "-b", help="Border width in pixels around the diagram."),
+    transparent: bool = typer.Option(False, "--transparent/--no-transparent", help="Transparent PNG background."),
+    page: Optional[int] = typer.Option(None, "--page", "-p", help="1-based page index (default: first page)."),
+    all_pages: bool = typer.Option(False, "--all-pages", help="Export every page as separate PNGs."),
+    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+) -> None:
+    """Export a .drawio diagram to PNG using the drawio CLI."""
+    _setup_logging(log_level)
+
+    from src.core.drawio.converter import (
+        DrawioExportError,
+        export_all_pages,
+        export_drawio_to_png,
+    )
+
+    if not input_file.exists():
+        typer.echo(f"[ERROR] File not found: {input_file}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        if all_pages:
+            out_dir = output if output and output.is_dir() else input_file.parent
+            paths = export_all_pages(input_file, output_dir=out_dir, scale=scale, border=border)
+            for p in paths:
+                typer.echo(f"  Exported: {p}")
+        else:
+            path = export_drawio_to_png(
+                input_file,
+                output_path=output,
+                page_index=page,
+                scale=scale,
+                border=border,
+                transparent=transparent,
+            )
+            typer.echo(f"  Exported: {path}")
+    except DrawioExportError as exc:
+        typer.echo(f"\n[ERROR] {exc}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        typer.echo(f"\n[ERROR] Unexpected error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("templates")
+def list_templates() -> None:
+    """List the bundled generic templates included with md2office."""
+    typer.echo("\nBundled templates (use with --template or omit for auto-selection):\n")
+
+    found_any = False
+    for path in sorted(_bundled_templates_dir().glob("*")):
+        if path.suffix not in (".pptx", ".docx"):
+            continue
+        found_any = True
+        size_kb = path.stat().st_size // 1024
+        if path.suffix == ".pptx":
+            try:
+                from pptx import Presentation
+                prs = Presentation(str(path))
+                detail = f"{len(prs.slides)} slides"
+            except Exception:
+                detail = "PPTX"
+        else:
+            detail = "DOCX"
+        typer.echo(f"  {path.name:<35} {detail:<15} {size_kb} KB")
+        typer.echo(f"  Path: {path}\n")
+
+    if not found_any:
+        typer.echo("  No bundled templates found. Run: python scripts/create_bundled_templates.py")
+
+
+@app.command("serve")
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (default: 127.0.0.1)."),
+    port: int = typer.Option(8000, "--port", "-p", help="Bind port (default: 8000)."),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload (development only)."),
+    log_level: str = typer.Option("info", "--log-level", help="Uvicorn log level."),
+) -> None:
+    """Start the MD2Office web UI server."""
+    try:
+        import uvicorn
+    except ImportError:
+        typer.echo(
+            "[ERROR] Web UI requires extra dependencies. Install with:\n"
+            "  pip install md2office[web]\n"
+            "or: pip install fastapi 'uvicorn[standard]' python-multipart",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\nMD2Office Web UI — http://{host}:{port}\nPress Ctrl+C to stop.\n")
+    uvicorn.run(
+        "src.web.app:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        reload=reload,
+        log_level=log_level.lower(),
+    )
 
 
 def main() -> None:

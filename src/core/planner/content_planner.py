@@ -247,6 +247,7 @@ class ContentPlanner:
                     "replacements": {},
                     "bullets": [],
                     "items": {},
+                    "diagram_path": "",
                 }
                 in_bullets = False
                 continue
@@ -273,6 +274,13 @@ class ContentPlanner:
             m = re.match(r'^- placeholder: "(.+)$', line)
             if m and "→" not in line:
                 pending_old = m.group(1)
+                in_bullets = False
+                continue
+
+            # Diagram path: - diagram: "path/to/file.drawio" or "path/to/image.png"
+            m = re.match(r'^- diagram: "(.+?)"$', line)
+            if m:
+                current["diagram_path"] = m.group(1)
                 in_bullets = False
                 continue
 
@@ -352,8 +360,9 @@ def _dict_to_slide_def(data: dict) -> SlideDefinition:
         slide_number=data["slide_number"],
         template_index=data["template_index"],
         slide_type=data["slide_type"],
-        intent=SlideIntent.BULLETS,
+        intent=SlideIntent.DIAGRAM if data.get("diagram_path") else SlideIntent.BULLETS,
         replacements=data["replacements"],
         bullets=data["bullets"],
         items=data["items"],
+        diagram_path=data.get("diagram_path", ""),
     )

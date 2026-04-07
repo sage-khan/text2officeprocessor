@@ -2,6 +2,7 @@
 
 > Convert **Markdown / Text / HTML** to **PPTX, DOCX, and XLSX** using template-driven deterministic rendering with optional LLM normalization.
 
+[![PyPI](https://img.shields.io/pypi/v/md2office.svg)](https://pypi.org/project/md2office/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -31,22 +32,41 @@ MD2Office takes your content in plain text formats and converts it into professi
 ### Install
 
 ```bash
+pip install md2office
+```
+
+The `md2office` command is immediately available. Bundled generic templates are included — no template file needed to get started.
+
+**From source** (for development or contribution):
+
+```bash
 git clone https://github.com/sage-khan/text2officeprocessor
 cd text2officeprocessor
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .          # registers the md2office command in your PATH
+pip install -r requirements.txt && pip install -e .
 ```
 
-After `pip install -e .` the `md2office` command is available in the activated venv. Add the project to your `PATH` (see [docs/guide.md](docs/guide.md#invoking-the-tool)) to use it from any directory without activating the venv.
+### Zero-config — try it immediately
 
-### Generate a PPTX from pre-authored slides markdown
+No template file needed. The bundled generic template is used automatically:
+
+```bash
+md2office convert --slides-md slides.md --output outputs/presentation.pptx
+```
+
+See what templates are bundled:
+
+```bash
+md2office templates
+```
+
+### Generate a PPTX with your own template
 
 ```bash
 md2office convert \
   --slides-md slides.md \
-  --template template.pptx \
-  --output outputs/presentation.pptx \
+  --template  template.pptx \
+  --output    outputs/presentation.pptx \
   --type pptx
 ```
 
@@ -88,6 +108,102 @@ md2office convert \
   --output output.pptx \
   --config my-rules.yaml
 ```
+
+### Batch convert an entire directory
+
+```bash
+md2office batch \
+  --input-dir ./content/ \
+  --output-dir ./outputs/ \
+  --type xlsx
+```
+
+Convert only `.md` files to PPTX using your own template:
+
+```bash
+md2office batch \
+  --input-dir ./slides/ \
+  --output-dir ./outputs/ \
+  --type pptx \
+  --template template.pptx \
+  --pattern "*.md"
+```
+
+### Embed a draw.io diagram into a slide
+
+In your `slides.md`:
+
+```markdown
+## SLIDE 3 — template_index: 2 (Single Point)
+- placeholder: "SINGLE POINT SLIDE" → "System Architecture"
+- diagram: "diagrams/architecture.drawio"
+```
+
+Or export a diagram directly:
+
+```bash
+md2office drawio-export diagrams/architecture.drawio --output outputs/architecture.png
+md2office drawio-export diagrams/multi-page.drawio --all-pages
+```
+
+### Watch mode — auto-regenerate on save
+
+```bash
+md2office watch \
+  --input notes.md \
+  --output presentation.pptx \
+  --type pptx
+```
+
+Every time you save `notes.md`, the output is regenerated automatically. A 1-second debounce prevents multiple rapid saves from triggering redundant builds. Press `Ctrl+C` to stop.
+
+```bash
+md2office watch \
+  --input slides.md \
+  --output presentation.xlsx \
+  --type xlsx \
+  --debounce 0.5 \
+  --no-validate
+```
+
+### LLM semantic validation
+
+After rendering, ask an LLM to check the output for truncated text, unreplaced placeholders, content mismatches, and empty sections:
+
+```bash
+md2office convert \
+  --slides-md slides.md \
+  --output output.pptx \
+  --llm ollama --llm-model mistral \
+  --llm-validate
+```
+
+The check is non-blocking — if the LLM is unavailable the document is still saved.
+
+### Web UI
+
+Install the web extras and launch the browser interface:
+
+```bash
+pip install md2office[web]
+md2office serve
+```
+
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000) — drag-and-drop a `.md`, `.txt`, or `.html` file, choose an output format, and download the result.
+
+```bash
+md2office serve --host 0.0.0.0 --port 8080
+```
+
+### Custom validation config
+
+Override the built-in placeholder list, artifact tokens, LLM prompt, and more by pointing to your own YAML:
+
+```bash
+md2office convert --input doc.md --output out.xlsx --type xlsx --config my-rules.yaml
+```
+
+See `config/default_rules.yaml` for all available keys (`validation.known_placeholders`, `llm_validation.prompt`, etc.).
 
 ### Analyze a template before authoring
 
@@ -388,7 +504,7 @@ docker compose run --rm md2office convert \
 python -m pytest tests/ -v
 ```
 
-Expected: **38 tests pass**.
+Expected: **123 tests pass**.
 
 ---
 

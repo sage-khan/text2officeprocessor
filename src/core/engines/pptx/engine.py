@@ -701,5 +701,94 @@ class PPTXEngine:
         if sdef.items:
             apply_items(new_slide, sdef.template_index, sdef.items)
 
+        # Embed diagram image (draw.io export or direct PNG/SVG)
+        if sdef.diagram_path:
+            self._embed_diagram(new_slide, sdef)
+
         # Auto-shrink any shape whose content exceeds its bounding box
         fit_text_to_shape(new_slide)
+
+    def _embed_diagram(self, slide: Any, sdef: "SlideDefinition") -> None:
+        """
+        Export a draw.io file to PNG (or use a PNG directly) and embed it on the slide.
+
+        The image is centred horizontally with a small margin.  If the diagram_path
+        is relative it is resolved relative to the current working directory so the
+        slides markdown can use paths relative to where the user runs the tool.
+        """
+        from pptx.util import Inches, Emu
+        import tempfile
+
+        diagram_path = Path(sdef.diagram_path)
+        if not diagram_path.is_absolute():
+            diagram_path = Path.cwd() / diagram_path
+
+        if not diagram_path.exists():
+            logger.warning(
+                "Slide %d: diagram file not found — %s (skipping)",
+                sdef.slide_number,
+                diagram_path,
+            )
+            return
+
+        suffix = diagram_path.suffix.lower()
+
+        # Retrieve presentation dimensions via the slide's part relationship
+        try:
+            slide_w = slide.shapes._spTree.getparent().getparent().slide_width
+            slide_h = slide.shapes._spTree.getparent().getparent().slide_height
+        except Exception:
+            from pptx.util import Inches
+            slide_w = Inches(13.33)
+            slide_h = Inches(7.5)
+
+        # Resolve to a raster PNG suitable for embedding
+        if suffix == ".drawio":
+            try:
+                from src.core.drawio.converter import export_drawio_to_png
+                with tempfile.TemporaryDirectory() as tmp:
+                    png_path = export_drawio_to_png(
+                        diagram_path,
+                        output_path=Path(tmp) / (diagram_path.stem + ".png"),
+                    )
+                    self._insert_image_centred(slide, png_path, slide_w, slide_h)
+            except Exception as exc:
+                logger.warning(
+                    "Slide %d: draw.io export failed — %s (skipping diagram)",
+                    sdef.slide_number,
+                    exc,
+                )
+        elif suffix in {".png", ".jpg", ".jpeg", ".gif", ".bmp"}:
+            self._insert_image_centred(slide, diagram_path, slide_w, slide_h)
+        else:
+            logger.warning(
+                "Slide %d: unsupported diagram format '%s' — use .drawio or .png",
+                sdef.slide_number,
+                suffix,
+            )
+
+    @staticmethod
+    def _insert_image_centred(slide: Any, image_path: Path, slide_w: int, slide_h: int) -> None:
+        """Add an image to the slide, centred with a standard margin."""
+        from pptx.util import Inches
+
+        MARGIN = Inches(0.5)
+        max_w = slide_w - MARGIN * 2
+        max_h = slide_h - MARGIN * 2
+
+        # Add picture at full max width; python-pptx preserves aspect ratio
+        pic = slide.shapes.add_picture(
+            str(image_path),
+            left=MARGIN,
+            top=MARGIN,
+            width=max_w,
+        )
+
+        # Re-centre vertically after aspect ratio is applied
+        if pic.height < max_h:
+            pic.top = (slide_h - pic.height) // 2
+        else:
+            pic.height = max_h
+            pic.top = MARGIN
+            pic.left = (slide_w - pic.width) // 2
+

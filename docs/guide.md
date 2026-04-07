@@ -10,17 +10,23 @@ The core principle is **deterministic, template-driven rendering**: every replac
 
 ## Installation
 
-### Local (Python virtualenv)
+### From PyPI (recommended for most users)
 
 ```bash
-git clone https://github.com/sage-khan/md2office
-cd md2office
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .          # installs the md2office CLI command
+pip install md2office
 ```
 
-After `pip install -e .`, the `md2office` command is available system-wide via the venv binary.
+That's it. The `md2office` command is immediately available, and the bundled generic templates are included — no template file needed to get started.
+
+### From source (for development or contribution)
+
+```bash
+git clone https://github.com/sage-khan/text2officeprocessor
+cd text2officeprocessor
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .          # installs the md2office CLI command in editable mode
+```
 
 ### Docker
 
@@ -34,13 +40,14 @@ See the [Docker section](#running-with-docker) for full usage.
 
 ## Invoking the Tool
 
-### From within the project
+### After pip install (PyPI or editable)
 
 ```bash
-python -m src.cli.main convert --help
+md2office --help
+md2office convert --help
 ```
 
-### As a CLI command (after pip install -e .)
+### As a CLI command (editable install, venv explicit path)
 
 From **any directory** on the system, using the venv binary directly:
 
@@ -85,9 +92,25 @@ docker run --rm \
 
 ## Quick Start Examples
 
+### Zero-config — no template needed
+
+After install, the bundled `generic-slides.pptx` is used automatically when you omit `--template`:
+
+```bash
+md2office convert \
+  --slides-md slides.md \
+  --output    outputs/presentation.pptx
+```
+
+See what templates are bundled:
+
+```bash
+md2office templates
+```
+
 ### PPTX from pre-authored slides markdown
 
-The fastest path. You write a structured `slides.md` and point to your template:
+Use your own branded template by passing `--template`:
 
 ```bash
 md2office convert \
@@ -165,6 +188,182 @@ md2office analyze path/to/template.pptx
 ```
 
 This prints every slide, shape, paragraph, and run — giving you the exact strings to use in `- placeholder: "old" → "new"` lines.
+
+---
+
+## Embedding Draw.io Diagrams
+
+Any slide in your `slides.md` can include a draw.io diagram (or a plain PNG/JPG). The diagram is exported to a temporary PNG and embedded centred on the slide with a 0.5" margin, preserving aspect ratio.
+
+### In slides.md
+
+```markdown
+## SLIDE 3 — template_index: 2 (Single Point)
+- placeholder: "SINGLE POINT SLIDE" → "System Architecture"
+- diagram: "diagrams/architecture.drawio"
+```
+
+Paths are resolved relative to the working directory where `md2office convert` is run.
+
+### Supported diagram formats
+
+| Format | Handling |
+|--------|----------|
+| `.drawio` | Exported via `drawio --export --format png` (headless: `xvfb-run` used automatically) |
+| `.png` / `.jpg` / `.jpeg` | Embedded directly — no conversion |
+
+### Standalone export command
+
+Export a `.drawio` file to PNG without generating a presentation:
+
+```bash
+md2office drawio-export diagrams/architecture.drawio
+md2office drawio-export diagrams/architecture.drawio --output outputs/architecture.png --scale 3
+md2office drawio-export diagrams/multi-page.drawio --all-pages --output outputs/
+md2office drawio-export diagrams/flow.drawio --page 2 --transparent
+```
+
+### Requirements
+
+The `drawio` desktop CLI must be installed:
+- **Linux/Ubuntu:** `sudo apt install drawio` or download the AppImage from [drawio-desktop releases](https://github.com/jgraph/drawio-desktop/releases)
+- **Docker:** use the `docker-compose.yml` with the `drawio` sidecar image
+
+If `drawio` is unavailable at render time, the slide is rendered normally with only a warning log — the missing diagram is a soft failure, not an abort.
+
+---
+
+## Web UI
+
+The web interface lets you convert files in the browser without using the CLI.
+
+### Install and start
+
+```bash
+pip install md2office[web]
+md2office serve
+```
+
+Navigate to [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
+```bash
+md2office serve --host 0.0.0.0 --port 8080 --reload
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Single-page HTML UI |
+| `GET` | `/health` | JSON health check: `{"status": "ok"}` |
+| `POST` | `/convert` | Convert an uploaded file; returns the output as a download |
+
+### `/convert` parameters (multipart form)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file` | file | required | Input `.md`, `.txt`, `.html`, `.htm` |
+| `output_type` | string | `pptx` | `pptx`, `docx`, or `xlsx` |
+| `llm_provider` | string | empty | `ollama`, `openai`, `claude`, `groq`, `openrouter` |
+| `llm_model` | string | empty | Model name (provider default if blank) |
+
+### Behaviour
+
+- Bundled generic templates are used automatically for PPTX/DOCX
+- Temporary files are deleted from disk after the download response is sent
+- All errors return JSON `{"detail": "..."}` with an appropriate HTTP status code
+- The web server is optional — if `fastapi`/`uvicorn` are not installed, `md2office serve` prints an installation hint and exits cleanly
+
+---
+
+## LLM Semantic Validation
+
+After any render, you can run an optional LLM-powered coherence check on the output. This is in addition to the always-on programmatic checks.
+
+```bash
+md2office convert \
+  --slides-md slides.md \
+  --output output.pptx \
+  --llm ollama --llm-model mistral \
+  --llm-validate
+```
+
+### What the LLM checks
+
+| Issue type | Description |
+|---|---|
+| `TRUNCATED` | Text run appears cut off mid-sentence or mid-word |
+| `GARBLED` | Incoherent or scrambled text |
+| `PLACEHOLDER_LEAK` | Unreplaced template text still visible |
+| `MISMATCH` | Slide/section content does not match its heading |
+| `EMPTY_SECTION` | Slide or section has a title but no body |
+
+### Behaviour
+
+- Requires `--llm` to be configured. Without `--llm`, the flag is silently ignored (with a `[WARN]` note).
+- Content is truncated to 8 000 characters before being sent to the LLM.
+- All failures (provider unavailable, malformed response, parse error) return an empty result — the document is **always saved**.
+- Works with all providers: `ollama`, `openai`, `claude`, `openrouter`, `groq`.
+- Also available on `md2office batch --llm-validate`.
+
+### Example output
+
+```
+  Validation: PASSED (no issues)
+  LLM semantic validation:
+  Validation: PASSED with 1 issue(s)
+    [WARNING] Slide 4 / title: [PLACEHOLDER_LEAK] "Section Name Here" still present
+```
+
+---
+
+## Batch Converting a Directory
+
+Convert every markdown, text, or HTML file in a folder in one command. Output files are named after their source file, with the output extension appended:
+
+```bash
+md2office batch \
+  --input-dir ./content/ \
+  --output-dir ./outputs/ \
+  --type xlsx
+```
+
+Output:
+
+```
+Batch: 4 file(s) → XLSX in 'outputs/'
+
+  [1/4] report-q1.md → report-q1.xlsx
+  [2/4] report-q2.md → report-q2.xlsx
+  [3/4] report-q3.md → report-q3.xlsx
+  [4/4] report-q4.md → report-q4.xlsx
+
+==================================================
+Batch complete: 4/4 succeeded, 0 failed.
+```
+
+**Filter to specific files** with `--pattern`:
+
+```bash
+md2office batch \
+  --input-dir ./slides/ \
+  --output-dir ./outputs/ \
+  --type pptx \
+  --template corporate.pptx \
+  --pattern "section-*.md"
+```
+
+**Continue on error** (default) or **stop on first failure** with `--fail-fast`:
+
+```bash
+md2office batch \
+  --input-dir ./content/ \
+  --output-dir ./outputs/ \
+  --type pptx \
+  --fail-fast
+```
+
+If any file fails, its error is printed inline and the final summary lists all failures. The exit code is non-zero if any file failed.
 
 ---
 
@@ -343,12 +542,22 @@ text2officeprocessor/
 │   ├── test_pptx_engine.py
 │   ├── test_docx_engine.py
 │   └── test_xlsx_engine.py
+├── src/
+│   └── data/                     # Bundled package data (included in PyPI wheel)
+│       ├── templates/
+│       │   ├── generic-slides.pptx
+│       │   └── generic-document.docx
+│       └── config/
+│           ├── default_rules.yaml
+│           └── llm_config.yaml
 ├── docs/
 │   ├── guide.md                  # This file
 │   ├── architecture.drawio       # System architecture diagram (draw.io)
 │   └── development/
 │       ├── changelog.md
 │       └── diagnostics.md
+├── scripts/
+│   └── create_bundled_templates.py  # Regenerate bundled templates
 ├── Dockerfile                    # Standard Docker image
 ├── docker-compose.yml            # Compose for local dev + Ollama LLM
 ├── md2office                     # Shell wrapper (add to PATH for system-wide use)
