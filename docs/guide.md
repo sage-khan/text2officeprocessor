@@ -191,6 +191,48 @@ This prints every slide, shape, paragraph, and run — giving you the exact stri
 
 ---
 
+## Embedding Draw.io Diagrams
+
+Any slide in your `slides.md` can include a draw.io diagram (or a plain PNG/JPG). The diagram is exported to a temporary PNG and embedded centred on the slide with a 0.5" margin, preserving aspect ratio.
+
+### In slides.md
+
+```markdown
+## SLIDE 3 — template_index: 2 (Single Point)
+- placeholder: "SINGLE POINT SLIDE" → "System Architecture"
+- diagram: "diagrams/architecture.drawio"
+```
+
+Paths are resolved relative to the working directory where `md2office convert` is run.
+
+### Supported diagram formats
+
+| Format | Handling |
+|--------|----------|
+| `.drawio` | Exported via `drawio --export --format png` (headless: `xvfb-run` used automatically) |
+| `.png` / `.jpg` / `.jpeg` | Embedded directly — no conversion |
+
+### Standalone export command
+
+Export a `.drawio` file to PNG without generating a presentation:
+
+```bash
+md2office drawio-export diagrams/architecture.drawio
+md2office drawio-export diagrams/architecture.drawio --output outputs/architecture.png --scale 3
+md2office drawio-export diagrams/multi-page.drawio --all-pages --output outputs/
+md2office drawio-export diagrams/flow.drawio --page 2 --transparent
+```
+
+### Requirements
+
+The `drawio` desktop CLI must be installed:
+- **Linux/Ubuntu:** `sudo apt install drawio` or download the AppImage from [drawio-desktop releases](https://github.com/jgraph/drawio-desktop/releases)
+- **Docker:** use the `docker-compose.yml` with the `drawio` sidecar image
+
+If `drawio` is unavailable at render time, the slide is rendered normally with only a warning log — the missing diagram is a soft failure, not an abort.
+
+---
+
 ## Batch Converting a Directory
 
 Convert every markdown, text, or HTML file in a folder in one command. Output files are named after their source file, with the output extension appended:

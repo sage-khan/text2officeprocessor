@@ -106,6 +106,7 @@ class SlideDefinition:
     replacements: dict[str, str] = field(default_factory=dict)
     bullets: list[str] = field(default_factory=list)
     items: dict[str, str] = field(default_factory=dict)
+    diagram_path: str = ""
 
 
 @dataclass

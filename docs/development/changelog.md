@@ -132,7 +132,39 @@ All changes are recorded here with timestamps. Append-only.
 - 7 new batch tests: full conversion, output-dir auto-creation, glob filtering, empty dir, missing dir, summary count, bundled template fallback
 - Total test count: **51 passed**
 
+---
+
+## [0.2.3] — 2026-04-07
+
+### Added
+
+**Draw.io → PPTX diagram embedding (`src/core/drawio/converter.py`):**
+- `export_drawio_to_png()` — calls `drawio --export --format png`; wraps with `xvfb-run` on headless Linux automatically
+- `export_all_pages()` — exports every page of a multi-page diagram as separate PNGs
+- `_detect_page_count()` — counts `<diagram>` elements in XML to determine page count
+- `DrawioExportError` — raised for missing CLI, non-zero exit, or empty output
+- Falls back to cwd-relative path resolution for `diagram_path` in slides markdown
+
+**Slides markdown `- diagram:` key:**
+- Any slide definition can include `- diagram: "path/to/file.drawio"` (or `.png`/`.jpg`)
+- `ContentPlanner.parse_slides_markdown` parses this into `SlideDefinition.diagram_path`
+- `SlideIntent` set to `DIAGRAM` automatically when `diagram_path` is present
+
+**PPTX engine embedding (`PPTXEngine._embed_diagram`, `_insert_image_centred`):**
+- `.drawio` files are exported to a temporary PNG via `export_drawio_to_png`, then embedded
+- `.png`/`.jpg`/`.jpeg`/`.gif`/`.bmp` files are embedded directly
+- Image is centred on the slide with a 0.5" margin, preserving aspect ratio
+- Missing file or export failure → warning log only (slide still rendered without image)
+
+**`md2office drawio-export` CLI command:**
+- Exports a `.drawio` file to PNG directly from the command line
+- `--scale`, `--border`, `--transparent`, `--page`, `--all-pages` options
+- Usable independently of the PPTX pipeline
+
+**Tests:**
+- 9 new draw.io tests: missing file, CLI unavailable, non-zero exit, success mock, page count, planner parsing, engine embedding
+- Total test count: **60 passed**
+
 **Known limitations (Phase 2 scope):**
-- Draw.io flowchart → PNG → slide insertion not yet implemented
 - LLM validation pass (semantic coherence check) not yet wired
 - No web UI

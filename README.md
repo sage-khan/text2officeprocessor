@@ -129,6 +129,23 @@ md2office batch \
   --pattern "*.md"
 ```
 
+### Embed a draw.io diagram into a slide
+
+In your `slides.md`:
+
+```markdown
+## SLIDE 3 — template_index: 2 (Single Point)
+- placeholder: "SINGLE POINT SLIDE" → "System Architecture"
+- diagram: "diagrams/architecture.drawio"
+```
+
+Or export a diagram directly:
+
+```bash
+md2office drawio-export diagrams/architecture.drawio --output outputs/architecture.png
+md2office drawio-export diagrams/multi-page.drawio --all-pages
+```
+
 ### Analyze a template before authoring
 
 ```bash
@@ -428,7 +445,7 @@ docker compose run --rm md2office convert \
 python -m pytest tests/ -v
 ```
 
-Expected: **51 tests pass**.
+Expected: **60 tests pass**.
 
 ---
 

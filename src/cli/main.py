@@ -10,6 +10,7 @@ Usage:
     md2office analyze template.pptx
     md2office batch --input-dir ./content/ --output-dir ./outputs/ --type pptx --template template.pptx
     md2office batch --input-dir ./content/ --output-dir ./outputs/ --type xlsx
+    md2office drawio-export diagram.drawio --output diagram.png
 """
 
 from __future__ import annotations
@@ -395,6 +396,57 @@ def batch(
         typer.echo("\nFailed files:")
         for path, reason in failed:
             typer.echo(f"  {path.name}: {reason}")
+        raise typer.Exit(code=1)
+
+
+@app.command("drawio-export")
+def drawio_export(
+    input_file: Path = typer.Argument(..., help="Source .drawio file to export."),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Output PNG path. Defaults to <input>.png alongside the source file.",
+    ),
+    scale: str = typer.Option("2", "--scale", "-s", help="Export scale factor (default: 2 for 2x resolution)."),
+    border: str = typer.Option("10", "--border", "-b", help="Border width in pixels around the diagram."),
+    transparent: bool = typer.Option(False, "--transparent/--no-transparent", help="Transparent PNG background."),
+    page: Optional[int] = typer.Option(None, "--page", "-p", help="1-based page index (default: first page)."),
+    all_pages: bool = typer.Option(False, "--all-pages", help="Export every page as separate PNGs."),
+    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+) -> None:
+    """Export a .drawio diagram to PNG using the drawio CLI."""
+    _setup_logging(log_level)
+
+    from src.core.drawio.converter import (
+        DrawioExportError,
+        export_all_pages,
+        export_drawio_to_png,
+    )
+
+    if not input_file.exists():
+        typer.echo(f"[ERROR] File not found: {input_file}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        if all_pages:
+            out_dir = output if output and output.is_dir() else input_file.parent
+            paths = export_all_pages(input_file, output_dir=out_dir, scale=scale, border=border)
+            for p in paths:
+                typer.echo(f"  Exported: {p}")
+        else:
+            path = export_drawio_to_png(
+                input_file,
+                output_path=output,
+                page_index=page,
+                scale=scale,
+                border=border,
+                transparent=transparent,
+            )
+            typer.echo(f"  Exported: {path}")
+    except DrawioExportError as exc:
+        typer.echo(f"\n[ERROR] {exc}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        typer.echo(f"\n[ERROR] Unexpected error: {exc}", err=True)
         raise typer.Exit(code=1)
 
 
