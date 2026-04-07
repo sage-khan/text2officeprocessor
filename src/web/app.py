@@ -31,6 +31,12 @@ try:
 except ImportError:
     _FASTAPI_AVAILABLE = False
 
+try:
+    import python_multipart  # type: ignore  # noqa: F401
+    _MULTIPART_AVAILABLE = True
+except ImportError:
+    _MULTIPART_AVAILABLE = False
+
 _HTML = r"""\
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -459,7 +465,7 @@ _HTML = r"""\
     MD<span class="logo-dot">2</span>Office
   </a>
   <div class="nav-right">
-    <span class="nav-badge">v0.2.7</span>
+    <span class="nav-badge">v0.3.0</span>
     <button class="theme-btn" id="theme-toggle" title="Toggle dark mode">🌙</button>
   </div>
 </nav>
@@ -537,6 +543,11 @@ Start typing your Markdown here..."></textarea>
         <input type="hidden" id="selected-fmt" value="pptx" />
       </div>
 
+      <div class="field">
+        <label>Output filename (optional)</label>
+        <input type="text" id="output-name" placeholder="Example: quarterly-report" />
+      </div>
+
       <!-- LLM options (collapsible) -->
       <details style="margin-bottom:1rem">
         <summary style="cursor:pointer;font-size:.82rem;font-weight:700;color:var(--muted);
@@ -549,8 +560,10 @@ Start typing your Markdown here..."></textarea>
           <div class="field">
             <label>LLM provider</label>
             <select id="llm-provider">
-              <option value="">None — rule-based only</option>
+              <option value="">Auto (default local)</option>
+              <option value="none">Rule-based only (disable LLM)</option>
               <option value="ollama">Ollama (local)</option>
+              <option value="vllm">vLLM (local/server)</option>
               <option value="openai">OpenAI</option>
               <option value="claude">Anthropic Claude</option>
               <option value="groq">Groq</option>
@@ -582,6 +595,9 @@ Start typing your Markdown here..."></textarea>
 
       <!-- Status -->
       <div id="status-msg" class="info"></div>
+      <div style="margin-top:.25rem;font-size:.78rem;color:var(--muted)">
+        Output is downloaded by your browser (usually your Downloads folder) unless your browser asks for a location.
+      </div>
 
       <!-- Download -->
       <div id="download-area">
@@ -702,7 +718,13 @@ dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
-  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) {
+    const dropped = e.dataTransfer.files[0];
+    const dt = new DataTransfer();
+    dt.items.add(dropped);
+    fileInput.files = dt.files;
+    setFile(dropped);
+  }
 });
 fileInput.addEventListener('change', () => {
   if (fileInput.files.length) setFile(fileInput.files[0]);
@@ -716,7 +738,7 @@ function setFile(f) {
 const llmProvider = document.getElementById('llm-provider');
 const llmModelWrap = document.getElementById('llm-model-wrap');
 llmProvider.addEventListener('change', () => {
-  llmModelWrap.style.display = llmProvider.value ? 'block' : 'none';
+  llmModelWrap.style.display = (llmProvider.value && llmProvider.value !== 'none') ? 'block' : 'none';
 });
 
 /* ── History ──────────────────────────────────────────────────────────────── */
@@ -759,6 +781,7 @@ const dlAnchor      = document.getElementById('dl-anchor');
 const pasteInput    = document.getElementById('paste-input');
 const pasteFmt      = document.getElementById('paste-fmt');
 const llmModel      = document.getElementById('llm-model');
+const outputName    = document.getElementById('output-name');
 
 function setStatus(msg, cls = 'info') {
   statusMsg.textContent = msg;
@@ -774,11 +797,13 @@ convertBtn.addEventListener('click', async () => {
   const fmt = fmtInput.value;
   const provider = llmProvider.value;
   const model = llmModel.value.trim();
+  const requestedOutputName = outputName.value.trim();
 
   const formData = new FormData();
   formData.append('output_type', fmt);
   if (provider) formData.append('llm_provider', provider);
   if (model)    formData.append('llm_model', model);
+  if (requestedOutputName) formData.append('output_name', requestedOutputName);
 
   if (activeTab === 'file') {
     if (!fileInput.files.length) { setStatus('⚠ Please select a file first.', 'error'); return; }
@@ -845,8 +870,14 @@ def create_app():
             "  pip install md2office[web]\n"
             "or: pip install fastapi 'uvicorn[standard]' python-multipart"
         )
+    if not _MULTIPART_AVAILABLE:
+        raise ImportError(
+            "Web UI requires python-multipart for file uploads. Install with:\n"
+            "  pip install python-multipart\n"
+            "or install all web extras: pip install md2office[web]"
+        )
 
-    app = FastAPI(title="MD2Office Web UI", version="0.2.4", docs_url=None, redoc_url=None)
+    app = FastAPI(title="MD2Office Web UI", version="0.3.0", docs_url=None, redoc_url=None)
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index():
@@ -862,6 +893,7 @@ def create_app():
         output_type: str = Form("pptx"),
         llm_provider: Optional[str] = Form(None),
         llm_model: Optional[str] = Form(None),
+        output_name: Optional[str] = Form(None),
     ):
         """
         Convert an uploaded file to the requested output format.
@@ -893,17 +925,17 @@ def create_app():
         except ValueError:
             raise HTTPException(status_code=422, detail=f"Unknown output format: {output_type}")
 
-        # Resolve LLM provider
+        # Resolve LLM provider (local-first from llm_config.yaml unless disabled)
         provider = None
-        if llm_provider and llm_provider.strip():
-            try:
-                from src.core.llm.providers import build_provider
-                llm_cfg = {}
-                if llm_model and llm_model.strip():
-                    llm_cfg["model"] = llm_model.strip()
-                provider = build_provider(llm_provider.strip(), llm_cfg)
-            except Exception as exc:
-                logger.warning("Web: could not init LLM provider '%s': %s", llm_provider, exc)
+        try:
+            from src.core.llm.providers import build_provider
+            from src.core.llm.runtime_config import resolve_provider_selection
+
+            resolved_name, llm_cfg = resolve_provider_selection(llm_provider, llm_model)
+            if resolved_name:
+                provider = build_provider(resolved_name, llm_cfg)
+        except Exception as exc:
+            logger.warning("Web: could not initialize configured LLM provider: %s", exc)
 
         # Resolve bundled template
         from src.cli.main import _bundled_templates_dir
@@ -960,7 +992,14 @@ def create_app():
                 logger.exception("Web convert error")
                 raise HTTPException(status_code=500, detail=f"Conversion failed: {exc}")
 
-            out_name = stem + out_ext
+            safe_stem = stem
+            if output_name and output_name.strip():
+                safe_stem = Path(output_name.strip()).name
+                if "." in safe_stem:
+                    safe_stem = Path(safe_stem).stem
+                safe_stem = safe_stem.strip() or stem
+
+            out_name = safe_stem + out_ext
             media_types = {
                 ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

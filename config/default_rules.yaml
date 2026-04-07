@@ -45,6 +45,10 @@ placeholder_map:
     number: "Video Number"
   bullets:
     title: "Multi Point Slide"
+    bullet_placeholders:
+      - "• Bullet point one"
+      - "• Bullet point two"
+      - "• Bullet point three"
   single_point:
     title: "SINGLE POINT SLIDE"
     body: "This is a sample text"
@@ -96,6 +100,19 @@ validation:
     - "A key point (or issue)!"
     - "+80%"
     - "That\u2019s how much"
+    - "\u2022 Bullet point one"
+    - "\u2022 Bullet point two"
+    - "\u2022 Bullet point three"
+    - "card_1_title"
+    - "card_1_body"
+    - "card_2_title"
+    - "card_2_body"
+    - "card_3_title"
+    - "card_3_body"
+    - "card_4_title"
+    - "card_4_body"
+    - "Key Element Title"
+    - "Enter your subhead line here"
 
 llm_validation:
   max_content_chars: 8000   # Truncate document text to this length before sending to LLM

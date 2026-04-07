@@ -11,6 +11,7 @@ Each SheetDefinition becomes a worksheet with:
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from src.core.exceptions import RenderError
@@ -27,6 +28,24 @@ class XLSXEngine:
         engine = XLSXEngine()
         engine.render(plan, output_path)
     """
+
+    _INVALID_SHEET_CHARS = re.compile(r"[\[\]\*:/\\?]")
+
+    @classmethod
+    def _sanitize_sheet_name(cls, raw_name: str, used_names: set[str]) -> str:
+        """Return an Excel-safe, unique worksheet title (max 31 chars)."""
+        cleaned = cls._INVALID_SHEET_CHARS.sub("_", (raw_name or "").strip())
+        cleaned = cleaned.strip("'")
+        base = (cleaned[:31] or "Sheet").strip() or "Sheet"
+
+        candidate = base
+        i = 1
+        while candidate in used_names:
+            suffix = f"_{i}"
+            candidate = f"{base[:31 - len(suffix)]}{suffix}"
+            i += 1
+        used_names.add(candidate)
+        return candidate
 
     def render(self, plan: SpreadsheetPlan, output_path: Path) -> Path:
         """
@@ -67,8 +86,9 @@ class XLSXEngine:
             bottom=thin_border_side,
         )
 
+        used_sheet_names: set[str] = set()
         for sheet_def in plan.sheets:
-            sheet_name = sheet_def.name[:31] or "Sheet"
+            sheet_name = self._sanitize_sheet_name(sheet_def.name, used_sheet_names)
             ws = workbook.create_sheet(title=sheet_name)
 
             # Header row

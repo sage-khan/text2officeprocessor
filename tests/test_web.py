@@ -128,3 +128,14 @@ def test_convert_output_filename_matches_input_stem():
     assert resp.status_code == 200
     cd = resp.headers.get("content-disposition", "")
     assert "my-report.xlsx" in cd
+
+
+def test_convert_respects_custom_output_name():
+    resp = client.post(
+        "/convert",
+        data={"output_type": "xlsx", "output_name": "final-export"},
+        files={"file": ("my-report.md", SAMPLE_MD, "text/markdown")},
+    )
+    assert resp.status_code == 200
+    cd = resp.headers.get("content-disposition", "")
+    assert "final-export.xlsx" in cd

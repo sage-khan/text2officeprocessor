@@ -106,3 +106,19 @@ def test_from_markdown_table(tmp_path):
     import openpyxl
     wb = openpyxl.load_workbook(str(out))
     assert len(wb.sheetnames) >= 1
+
+
+def test_sheet_name_is_sanitized_and_unique(engine, tmp_path):
+    plan = SpreadsheetPlan(
+        sheets=[
+            SheetDefinition(name="Revenue: Q1/Q2*?", columns=["A"], rows=[["1"]]),
+            SheetDefinition(name="Revenue: Q1/Q2*?", columns=["A"], rows=[["2"]]),
+        ]
+    )
+    out = tmp_path / "sanitized.xlsx"
+    engine.render(plan, out)
+    import openpyxl
+
+    wb = openpyxl.load_workbook(str(out))
+    assert wb.sheetnames[0] == "Revenue_ Q1_Q2__"
+    assert wb.sheetnames[1] == "Revenue_ Q1_Q2___1"

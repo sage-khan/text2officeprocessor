@@ -155,7 +155,7 @@ class ContentPlanner:
         replacements: dict[str, str] = {}
         pm = self._placeholder_map
 
-        if intent == SlideIntent.SECTION_HEADER:
+        if intent in (SlideIntent.SECTION_HEADER, SlideIntent.TITLE):
             sh = pm.get("section_header", {})
             replacements[sh.get("title", "Section Name Here")] = content.title
             replacements[sh.get("number", "SECTION Number")] = ""
@@ -167,6 +167,13 @@ class ContentPlanner:
         elif intent == SlideIntent.BULLETS:
             bl = pm.get("bullets", {})
             replacements[bl.get("title", "Multi Point Slide")] = content.title
+            # Replace per-bullet placeholder texts in the generic template
+            bullet_placeholders = bl.get("bullet_placeholders", [])
+            for idx, placeholder in enumerate(bullet_placeholders):
+                if idx < len(content.bullets):
+                    replacements[placeholder] = content.bullets[idx]
+                else:
+                    replacements[placeholder] = ""
         elif intent == SlideIntent.SINGLE_POINT:
             sp = pm.get("single_point", {})
             replacements[sp.get("title", "SINGLE POINT SLIDE")] = content.title
@@ -184,6 +191,11 @@ class ContentPlanner:
             kh = pm.get("key_highlights", {})
             replacements[kh.get("title", "Key Highlights")] = content.title
             replacements[kh.get("subtitle", "Subhead")] = ""
+            # Populate card items for the 4-column highlights layout
+            for idx, bullet in enumerate(content.bullets[:4], start=1):
+                parts = bullet.split(":", 1)
+                content.items[f"card_{idx}_title"] = parts[0].strip()
+                content.items[f"card_{idx}_body"] = parts[1].strip() if len(parts) > 1 else ""
         elif intent == SlideIntent.NEXT_VIDEO:
             nv = pm.get("next_video", {})
             replacements[nv.get("title", "Next Video Title")] = content.title

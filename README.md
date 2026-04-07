@@ -191,6 +191,8 @@ md2office serve
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) — drag-and-drop a `.md`, `.txt`, or `.html` file, choose an output format, and download the result.
 
+By default, the UI uses **Auto (default local)** LLM mode, which resolves to the provider in `config/llm_config.yaml` (default: Ollama). You can switch to `Rule-based only` to disable LLM.
+
 ```bash
 md2office serve --host 0.0.0.0 --port 8080
 ```
@@ -281,6 +283,7 @@ LLM is entirely optional — the tool works fully offline with rule-based normal
 | Provider | Flag | Required Env Var |
 |----------|------|-----------------|
 | Ollama (local) | `--llm ollama` | None |
+| vLLM (OpenAI-compatible local/server) | `--llm vllm` | Optional `VLLM_API_KEY` |
 | OpenAI | `--llm openai` | `OPENAI_API_KEY` |
 | Claude | `--llm claude` | `ANTHROPIC_API_KEY` |
 | OpenRouter | `--llm openrouter` | `OPENROUTER_API_KEY` |
@@ -290,6 +293,38 @@ LLM is entirely optional — the tool works fully offline with rule-based normal
 md2office convert --input content.md --template t.pptx \
   --output out.pptx --type pptx --llm ollama --llm-model mistral
 ```
+
+### Local 7B model setup (recommended default)
+
+Ollama (preferred):
+
+```bash
+ollama pull mistral:7b-instruct
+ollama serve
+```
+
+vLLM alternative:
+
+```bash
+python -m vllm.entrypoints.openai.api_server \
+  --model mistralai/Mistral-7B-Instruct-v0.2 \
+  --port 8000
+```
+
+Docker profile option:
+
+```bash
+docker compose --profile vllm up -d vllm
+```
+
+One-command backend switch:
+
+```bash
+scripts/switch-llm-backend.sh ollama
+scripts/switch-llm-backend.sh vllm --start
+```
+
+Set provider defaults in `config/llm_config.yaml` and optional cloud keys in `.env` (see `.env.example`).
 
 ---
 
