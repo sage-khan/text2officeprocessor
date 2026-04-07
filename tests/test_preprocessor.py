@@ -114,6 +114,103 @@ def test_markdown_artifacts_stripped(preprocessor, tmp_path):
         assert "__" not in text
 
 
+def test_html_headings_become_sections(preprocessor, tmp_path):
+    f = tmp_path / "doc.html"
+    f.write_text(
+        "<html><body>"
+        "<h1>Main Title</h1>"
+        "<h2>Chapter One</h2><p>First paragraph.</p>"
+        "<h2>Chapter Two</h2><p>Second paragraph.</p>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    doc = preprocessor.parse(f)
+    assert doc.title == "Main Title"
+    assert len(doc.sections) == 2
+    assert doc.sections[0].title == "Chapter One"
+    assert doc.sections[1].title == "Chapter Two"
+
+
+def test_html_list_parsed(preprocessor, tmp_path):
+    f = tmp_path / "doc.html"
+    f.write_text(
+        "<html><body><h2>Items</h2>"
+        "<ul><li>Alpha</li><li>Beta</li><li>Gamma</li></ul>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    doc = preprocessor.parse(f)
+    lists = [b for s in doc.sections for b in s.content if b.content_type.value == "list"]
+    assert len(lists) == 1
+    assert lists[0].data == ["Alpha", "Beta", "Gamma"]
+
+
+def test_html_table_parsed(preprocessor, tmp_path):
+    f = tmp_path / "doc.html"
+    f.write_text(
+        "<html><body><h2>Data</h2>"
+        "<table><thead><tr><th>Name</th><th>Score</th></tr></thead>"
+        "<tbody><tr><td>Alice</td><td>95</td></tr>"
+        "<tr><td>Bob</td><td>87</td></tr></tbody></table>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    doc = preprocessor.parse(f)
+    tables = [b for s in doc.sections for b in s.content if b.content_type.value == "table"]
+    assert len(tables) == 1
+    assert tables[0].data["headers"] == ["Name", "Score"]
+    assert tables[0].data["rows"][0] == ["Alice", "95"]
+
+
+def test_html_inline_formatting_stripped(preprocessor, tmp_path):
+    f = tmp_path / "doc.html"
+    f.write_text(
+        "<html><body><h2>Styled</h2>"
+        "<p>This is <strong>bold</strong> and <em>italic</em> text.</p>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    doc = preprocessor.parse(f)
+    paras = [b for s in doc.sections for b in s.content if b.content_type.value == "paragraph"]
+    assert len(paras) == 1
+    assert "bold" in paras[0].data
+    assert "italic" in paras[0].data
+
+
+def test_html_image_parsed(preprocessor, tmp_path):
+    f = tmp_path / "doc.html"
+    f.write_text(
+        "<html><body><h2>Visuals</h2>"
+        '<img src="chart.png" alt="Sales chart">'
+        "</body></html>",
+        encoding="utf-8",
+    )
+    doc = preprocessor.parse(f)
+    images = [b for s in doc.sections for b in s.content if b.content_type.value == "image"]
+    assert len(images) == 1
+    assert images[0].data["path"] == "chart.png"
+    assert images[0].data["alt"] == "Sales chart"
+
+
+def test_html_script_style_ignored(preprocessor, tmp_path):
+    f = tmp_path / "doc.html"
+    f.write_text(
+        "<html><head><style>body{color:red}</style></head><body>"
+        "<h2>Real Content</h2>"
+        "<script>alert('xss')</script>"
+        "<p>Visible paragraph.</p>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    doc = preprocessor.parse(f)
+    all_text = " ".join(
+        str(b.data) for s in doc.sections for b in s.content
+    )
+    assert "alert" not in all_text
+    assert "color:red" not in all_text
+    assert "Visible paragraph" in all_text
+
+
 def test_sample_summary_parses(preprocessor):
     summary_path = Path(__file__).parent / "data" / "sample-summary.md"
     if not summary_path.exists():

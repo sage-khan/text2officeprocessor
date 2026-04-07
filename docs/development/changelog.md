@@ -87,9 +87,30 @@ All changes are recorded here with timestamps. Append-only.
 - `_resolve_template()` uses `importlib.resources` for PyPI installs; falls back to file path for editable installs
 - Bundled template auto-selection printed to stdout: `Using bundled template: generic-slides.pptx`
 
+---
+
+## [0.2.1] — 2026-04-07
+
+### Improved
+
+**Full DOM-aware HTML parser (`src/core/parser/preprocessor.py`):**
+- Replaced the basic tag-stripping HTMLParser with a proper `lxml`-based DOM parser
+- `<h1>`–`<h6>` headings now create `DocumentSection` boundaries with correct level
+- `<ul>` / `<ol>` → `ContentType.LIST` with per-`<li>` items
+- `<table>` with `<thead>`/`<tbody>` → `ContentType.TABLE` with `headers` + `rows`
+- `<img src>` → `ContentType.IMAGE` with `path` and `alt` keys
+- `<p>`, `<blockquote>`, `<pre>` → `ContentType.PARAGRAPH` with inline tags (`<strong>`, `<em>`, `<a>`) collapsed to plain text
+- `<script>` and `<style>` blocks removed from DOM before any processing (XSS-safe)
+- Container tags (`<div>`, `<section>`, `<article>`, `<main>`) are recursed into transparently
+- `_parse_html_fallback()` retained as last-resort for lxml parse failures
+- `<html><title>` used as document title if no `<h1>` is present
+
+**Tests:**
+- 6 new HTML-specific tests added: headings, lists, tables, inline formatting, images, script/style exclusion
+- Total test count: **44 passed**
+
 **Known limitations (Phase 2 scope):**
 - Draw.io flowchart → PNG → slide insertion not yet implemented
 - LLM validation pass (semantic coherence check) not yet wired
 - Batch processing CLI not yet implemented
 - No web UI
-- HTML input parsing is basic (block-level only)

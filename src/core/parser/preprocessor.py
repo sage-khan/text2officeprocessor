@@ -226,45 +226,159 @@ class InputPreprocessor:
         return {"headers": rows[0], "rows": rows[1:]}
 
     # ------------------------------------------------------------------
-    # HTML parsing (basic — strips tags)
+    # HTML parsing — full DOM-aware parser using lxml
     # ------------------------------------------------------------------
 
     def _parse_html(self, file_path: Path, text: str) -> ParsedDocument:
-        """Minimal HTML parser: strips tags and delegates to markdown parser."""
+        """
+        Parse an HTML file into a ParsedDocument using lxml.
+
+        Handles:
+        - Headings (h1–h6) → DocumentSection boundaries
+        - Paragraphs (p) with inline <strong>/<em>/<a> preserved as plain text
+        - Unordered and ordered lists (ul/ol → li) → ContentType.LIST
+        - Tables (table → thead/tbody/tr/th/td) → ContentType.TABLE
+        - Images (img[src]) → ContentType.IMAGE
+        - Skips <script> and <style> blocks entirely
+        """
         try:
-            from html.parser import HTMLParser
-
-            class _TextExtractor(HTMLParser):
-                def __init__(self) -> None:
-                    super().__init__()
-                    self.chunks: list[str] = []
-                    self._skip = False
-
-                def handle_starttag(self, tag: str, attrs: list) -> None:
-                    if tag in {"script", "style"}:
-                        self._skip = True
-                    if tag in {"h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "br", "tr"}:
-                        self.chunks.append("\n")
-
-                def handle_endtag(self, tag: str) -> None:
-                    if tag in {"script", "style"}:
-                        self._skip = False
-                    if tag in {"h1", "h2", "h3", "h4", "h5", "h6", "p", "tr"}:
-                        self.chunks.append("\n")
-
-                def handle_data(self, data: str) -> None:
-                    if not self._skip:
-                        self.chunks.append(data)
-
-            extractor = _TextExtractor()
-            extractor.feed(text)
-            plain = "".join(extractor.chunks)
-            plain = _normalize_whitespace(plain)
+            from lxml import html as lhtml
+            root = lhtml.fromstring(text)
         except Exception as exc:
-            logger.warning("HTML parsing failed, using raw text: %s", exc)
-            plain = re.sub(r"<[^>]+>", " ", text)
-            plain = _normalize_whitespace(plain)
+            logger.warning("lxml HTML parse failed, falling back to tag stripping: %s", exc)
+            return self._parse_html_fallback(file_path, text)
 
-        # Delegate plain text to markdown parser
-        tmp_path = file_path.with_suffix(".md")
+        # Remove script/style nodes entirely
+        for dead in root.xpath(".//script | .//style"):
+            dead.getparent().remove(dead)
+
+        title = ""
+        h1_els = root.xpath(".//h1")
+        if h1_els:
+            title = (h1_els[0].text_content() or "").strip()
+        if not title:
+            title_els = root.xpath(".//title")
+            title = (title_els[0].text_content() or "").strip() if title_els else file_path.stem
+
+        sections: list[DocumentSection] = []
+        current_section: DocumentSection | None = None
+
+        HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+        HEADING_LEVEL = {f"h{n}": n for n in range(1, 7)}
+        SKIP_TAGS = {"head", "script", "style", "meta", "link", "noscript"}
+        BLOCK_TAGS = HEADING_TAGS | {"p", "ul", "ol", "table", "blockquote", "pre", "figure", "div", "section", "article"}
+
+        body = root.find(".//body")
+        if body is None:
+            body = root
+
+        def _inner_text(el: Any) -> str:
+            """Extract all text inside an element, preserving inline spacing."""
+            return (el.text_content() or "").strip()
+
+        def _process_element(el: Any) -> None:
+            nonlocal current_section
+
+            tag = (el.tag or "").lower() if isinstance(el.tag, str) else ""
+
+            if tag in SKIP_TAGS:
+                return
+
+            # Headings — start a new section
+            if tag in HEADING_TAGS:
+                level = HEADING_LEVEL[tag]
+                heading_text = _inner_text(el)
+                if not heading_text:
+                    return
+                if level == 1 and not sections and current_section is None:
+                    # Document title; skip creating a section for the very first h1
+                    return
+                if current_section is not None and (current_section.content or current_section.title):
+                    sections.append(current_section)
+                current_section = DocumentSection(title=heading_text, level=level)
+                return
+
+            if current_section is None:
+                current_section = DocumentSection(title="", level=1)
+
+            # Lists
+            if tag in {"ul", "ol"}:
+                items = [
+                    _strip_artifacts(li.text_content().strip())
+                    for li in el.xpath(".//li")
+                    if li.text_content().strip()
+                ]
+                if items:
+                    current_section.content.append(ContentBlock(
+                        content_type=ContentType.LIST,
+                        data=items,
+                        raw="\n".join(items),
+                    ))
+                return
+
+            # Tables
+            if tag == "table":
+                headers: list[str] = []
+                rows: list[list[str]] = []
+                for th in el.xpath(".//thead/tr/th | .//tr[1]/th"):
+                    headers.append(th.text_content().strip())
+                for tr in el.xpath(".//tbody/tr | .//tr"):
+                    cells = [td.text_content().strip() for td in tr.xpath(".//td")]
+                    if cells:
+                        rows.append(cells)
+                if headers or rows:
+                    current_section.content.append(ContentBlock(
+                        content_type=ContentType.TABLE,
+                        data={"headers": headers, "rows": rows},
+                        raw=_inner_text(el),
+                    ))
+                return
+
+            # Images
+            if tag == "img":
+                src = el.get("src", "")
+                alt = el.get("alt", "")
+                if src:
+                    current_section.content.append(ContentBlock(
+                        content_type=ContentType.IMAGE,
+                        data={"alt": alt, "path": src},
+                        raw=f'<img src="{src}" alt="{alt}">',
+                    ))
+                return
+
+            # Paragraphs and other block text
+            if tag in {"p", "blockquote", "pre", "figcaption"}:
+                text_content = _inner_text(el)
+                if text_content:
+                    current_section.content.append(ContentBlock(
+                        content_type=ContentType.PARAGRAPH,
+                        data=_strip_artifacts(text_content),
+                        raw=text_content,
+                    ))
+                return
+
+            # Recurse into container elements
+            if tag in {"div", "section", "article", "main", "header", "footer", "aside", "body"}:
+                for child in el:
+                    _process_element(child)
+
+        for child in body:
+            _process_element(child)
+
+        if current_section is not None and (current_section.content or current_section.title):
+            sections.append(current_section)
+
+        doc = ParsedDocument(
+            title=title,
+            source_path=file_path,
+            source_format="html",
+            sections=sections,
+        )
+        logger.info("Parsed %d sections from HTML: %s", len(sections), file_path.name)
+        return doc
+
+    def _parse_html_fallback(self, file_path: Path, text: str) -> ParsedDocument:
+        """Last-resort HTML parser: strips all tags and delegates to markdown parser."""
+        plain = re.sub(r"<[^>]+>", " ", text)
+        plain = _normalize_whitespace(plain)
         return self._parse_markdown(file_path, plain)
