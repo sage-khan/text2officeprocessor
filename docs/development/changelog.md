@@ -25,7 +25,7 @@ All changes are recorded here with timestamps. Append-only.
 - All slide types verified visually: Section Header, Video Title, Multi-Point, Key Highlights 4-col, Excellence Grid, Stats, Single Point, Callout, Next Video
 
 **Test data:**
-- EC-Council AI Algorithmic Auditing section-01 slides markdown and template used as primary e2e fixture
+- Generic `sample-slides.md` and `sample-sections.pptx` used as primary e2e fixtures (bundled under `tests/`)
 
 ---
 
@@ -57,7 +57,15 @@ All changes are recorded here with timestamps. Append-only.
 - `docs/guide.md` fully rewritten as a coherent narrative document (removed raw chat transcript)
 - Sections added: Invoking the Tool, Text Overflow Handling, Running with Docker
 
+**Git / release:**
+- Repository: `git@github.com:sage-khan/text2officeprocessor.git`
+- `main` branch set as default; holds the last stable release
+- `dev` branch is the active development branch; all work goes here first
+- Tagged `v0.1.0` on `main`
+
 **Known limitations (Phase 2 scope):**
 - Draw.io flowchart → PNG → slide insertion not yet implemented
 - LLM validation pass (semantic coherence check) not yet wired
 - Batch processing CLI not yet implemented
+- No web UI
+- HTML input parsing is basic (block-level only)
