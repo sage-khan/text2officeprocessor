@@ -109,8 +109,30 @@ All changes are recorded here with timestamps. Append-only.
 - 6 new HTML-specific tests added: headings, lists, tables, inline formatting, images, script/style exclusion
 - Total test count: **44 passed**
 
+---
+
+## [0.2.2] — 2026-04-07
+
+### Added
+
+**`md2office batch` command (`src/cli/main.py`):**
+- Converts every supported file (`.md`, `.txt`, `.html`, `.htm`) in a directory to the chosen output format
+- `--input-dir` / `--output-dir` — source and destination; output dir created automatically
+- `--type pptx | docx | xlsx` — output format (default: pptx)
+- `--template` — optional; falls back to bundled template for PPTX/DOCX
+- `--pattern` — glob filter e.g. `*.md` or `section-*.html` (default: `*`)
+- `--llm` / `--llm-model` — optional LLM normalisation applied to every file
+- `--config` — custom rules YAML applied to every file
+- `--fail-fast` — abort on first error (default: continue and report all failures at end)
+- `--validate/--no-validate` — run `ProgrammaticValidator` after each render
+- Final summary line: `Batch complete: N/M succeeded, K failed.`
+- Non-zero exit code if any file fails; zero if all succeed or directory is empty
+
+**Tests:**
+- 7 new batch tests: full conversion, output-dir auto-creation, glob filtering, empty dir, missing dir, summary count, bundled template fallback
+- Total test count: **51 passed**
+
 **Known limitations (Phase 2 scope):**
 - Draw.io flowchart → PNG → slide insertion not yet implemented
 - LLM validation pass (semantic coherence check) not yet wired
-- Batch processing CLI not yet implemented
 - No web UI

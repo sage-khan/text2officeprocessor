@@ -109,6 +109,26 @@ md2office convert \
   --config my-rules.yaml
 ```
 
+### Batch convert an entire directory
+
+```bash
+md2office batch \
+  --input-dir ./content/ \
+  --output-dir ./outputs/ \
+  --type xlsx
+```
+
+Convert only `.md` files to PPTX using your own template:
+
+```bash
+md2office batch \
+  --input-dir ./slides/ \
+  --output-dir ./outputs/ \
+  --type pptx \
+  --template template.pptx \
+  --pattern "*.md"
+```
+
 ### Analyze a template before authoring
 
 ```bash
@@ -408,7 +428,7 @@ docker compose run --rm md2office convert \
 python -m pytest tests/ -v
 ```
 
-Expected: **38 tests pass**.
+Expected: **51 tests pass**.
 
 ---
 

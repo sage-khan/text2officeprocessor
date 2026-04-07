@@ -191,6 +191,56 @@ This prints every slide, shape, paragraph, and run — giving you the exact stri
 
 ---
 
+## Batch Converting a Directory
+
+Convert every markdown, text, or HTML file in a folder in one command. Output files are named after their source file, with the output extension appended:
+
+```bash
+md2office batch \
+  --input-dir ./content/ \
+  --output-dir ./outputs/ \
+  --type xlsx
+```
+
+Output:
+
+```
+Batch: 4 file(s) → XLSX in 'outputs/'
+
+  [1/4] report-q1.md → report-q1.xlsx
+  [2/4] report-q2.md → report-q2.xlsx
+  [3/4] report-q3.md → report-q3.xlsx
+  [4/4] report-q4.md → report-q4.xlsx
+
+==================================================
+Batch complete: 4/4 succeeded, 0 failed.
+```
+
+**Filter to specific files** with `--pattern`:
+
+```bash
+md2office batch \
+  --input-dir ./slides/ \
+  --output-dir ./outputs/ \
+  --type pptx \
+  --template corporate.pptx \
+  --pattern "section-*.md"
+```
+
+**Continue on error** (default) or **stop on first failure** with `--fail-fast`:
+
+```bash
+md2office batch \
+  --input-dir ./content/ \
+  --output-dir ./outputs/ \
+  --type pptx \
+  --fail-fast
+```
+
+If any file fails, its error is printed inline and the final summary lists all failures. The exit code is non-zero if any file failed.
+
+---
+
 ## Slides Markdown Format
 
 The primary PPTX workflow uses a structured markdown file that maps content explicitly to template slide types. This format bypasses the LLM normalization step entirely and gives you full, deterministic control over every slide.

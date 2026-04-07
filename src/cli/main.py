@@ -8,6 +8,8 @@ Usage:
     md2office convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
     md2office convert --slides-md slides.md --template template.pptx --output out.pptx --config my-rules.yaml
     md2office analyze template.pptx
+    md2office batch --input-dir ./content/ --output-dir ./outputs/ --type pptx --template template.pptx
+    md2office batch --input-dir ./content/ --output-dir ./outputs/ --type xlsx
 """
 
 from __future__ import annotations
@@ -275,6 +277,125 @@ def analyze(
                                 f'  Shape {j} "{shape.name}" para[{k}] run[{r}]: {repr(run.text)}'
                             )
         typer.echo("")
+
+
+@app.command("batch")
+def batch(
+    input_dir: Path = typer.Option(
+        ..., "--input-dir", "-i",
+        help="Directory containing input files (.md / .txt / .html).",
+    ),
+    output_dir: Path = typer.Option(
+        ..., "--output-dir", "-o",
+        help="Directory where output files will be written (created if absent).",
+    ),
+    output_type: OutputFormat = typer.Option(
+        OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
+    ),
+    template: Optional[Path] = typer.Option(
+        None, "--template", "-t",
+        help="Template .pptx or .docx file. Omit to use the bundled generic template.",
+    ),
+    glob_pattern: str = typer.Option(
+        "*", "--pattern", "-p",
+        help="Glob pattern to filter input files, e.g. '*.md' or 'section-*.html'.",
+    ),
+    llm_provider: Optional[str] = typer.Option(
+        None, "--llm", help="LLM provider: ollama | openai | claude | openrouter | groq."
+    ),
+    llm_model: Optional[str] = typer.Option(
+        None, "--llm-model", help="Model name for the LLM provider."
+    ),
+    validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after each render."),
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c",
+        help="Path to a custom rules YAML file.",
+    ),
+    fail_fast: bool = typer.Option(
+        False, "--fail-fast/--no-fail-fast",
+        help="Stop immediately on first error instead of continuing with remaining files.",
+    ),
+    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+) -> None:
+    """Convert every input file in a directory to the chosen output format."""
+    _setup_logging(log_level)
+    logger = logging.getLogger("md2office.batch")
+
+    if not input_dir.is_dir():
+        typer.echo(f"[ERROR] Input directory not found: {input_dir}", err=True)
+        raise typer.Exit(code=1)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Collect candidate files matching the pattern and supported formats
+    supported_suffixes = {".md", ".txt", ".html", ".htm"}
+    candidates = sorted(
+        f for f in input_dir.glob(glob_pattern)
+        if f.is_file() and f.suffix.lower() in supported_suffixes
+    )
+
+    if not candidates:
+        typer.echo(
+            f"[WARN] No supported files found in '{input_dir}' matching '{glob_pattern}'. "
+            "Supported extensions: .md .txt .html .htm"
+        )
+        raise typer.Exit(code=0)
+
+    # Resolve LLM provider once for the whole batch
+    provider = None
+    if llm_provider:
+        try:
+            llm_config = {}
+            if llm_model:
+                llm_config["model"] = llm_model
+            provider = build_provider(llm_provider, llm_config)
+            logger.info("Using LLM provider: %s", llm_provider)
+        except Exception as exc:
+            logger.warning(
+                "Could not initialize LLM provider '%s': %s — proceeding without LLM.",
+                llm_provider, exc,
+            )
+
+    resolved_template = _resolve_template(template, output_type)
+    if resolved_template and resolved_template != template:
+        typer.echo(f"  Using bundled template: {resolved_template.name}")
+
+    ext_map = {OutputFormat.PPTX: ".pptx", OutputFormat.DOCX: ".docx", OutputFormat.XLSX: ".xlsx"}
+    out_ext = ext_map[output_type]
+
+    total = len(candidates)
+    succeeded: list[Path] = []
+    failed: list[tuple[Path, str]] = []
+
+    typer.echo(f"\nBatch: {total} file(s) → {output_type.value.upper()} in '{output_dir}'\n")
+
+    for idx, input_file in enumerate(candidates, start=1):
+        output_file = output_dir / (input_file.stem + out_ext)
+        typer.echo(f"  [{idx}/{total}] {input_file.name} → {output_file.name}")
+        try:
+            if output_type == OutputFormat.PPTX:
+                _run_pptx(input_file, None, resolved_template, output_file, provider, validate, config, logger)
+            elif output_type == OutputFormat.DOCX:
+                _run_docx(input_file, resolved_template, output_file, provider, validate, config, logger)
+            elif output_type == OutputFormat.XLSX:
+                _run_xlsx(input_file, output_file, provider, validate, logger)
+            succeeded.append(output_file)
+        except Exception as exc:
+            msg = str(exc)
+            failed.append((input_file, msg))
+            typer.echo(f"    [FAILED] {msg}", err=True)
+            if fail_fast:
+                typer.echo("\n[ABORTED] --fail-fast is set. Stopping batch.", err=True)
+                raise typer.Exit(code=1)
+
+    # Summary
+    typer.echo(f"\n{'='*50}")
+    typer.echo(f"Batch complete: {len(succeeded)}/{total} succeeded, {len(failed)} failed.")
+    if failed:
+        typer.echo("\nFailed files:")
+        for path, reason in failed:
+            typer.echo(f"  {path.name}: {reason}")
+        raise typer.Exit(code=1)
 
 
 @app.command("templates")
