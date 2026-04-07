@@ -36,7 +36,8 @@ def test_index_returns_html():
     resp = client.get("/")
     assert resp.status_code == 200
     assert "MD2Office" in resp.text
-    assert "<form" in resp.text
+    assert "convert-btn" in resp.text
+    assert "drop-zone" in resp.text
 
 
 # ---------------------------------------------------------------------------

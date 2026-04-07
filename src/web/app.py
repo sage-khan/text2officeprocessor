@@ -31,231 +31,801 @@ try:
 except ImportError:
     _FASTAPI_AVAILABLE = False
 
-_HTML = """\
+_HTML = r"""\
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MD2Office — Document Converter</title>
   <style>
+    /* ── Reset & tokens ───────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #f1f5f9;
+      --surface:   #ffffff;
+      --surface2:  #f8fafc;
+      --border:    #e2e8f0;
+      --text:      #0f172a;
+      --muted:     #64748b;
+      --accent:    #6366f1;
+      --accent-h:  #4f46e5;
+      --accent-lt: #eef2ff;
+      --teal:      #0ea5e9;
+      --teal-h:    #0284c7;
+      --green:     #16a34a;
+      --red:       #dc2626;
+      --amber:     #d97706;
+      --radius:    10px;
+      --shadow:    0 4px 24px rgba(0,0,0,.08);
+      --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    [data-theme="dark"] {
+      --bg:        #0f172a;
+      --surface:   #1e293b;
+      --surface2:  #162032;
+      --border:    #334155;
+      --text:      #f1f5f9;
+      --muted:     #94a3b8;
+      --accent-lt: #1e1b4b;
+      --shadow:    0 4px 24px rgba(0,0,0,.4);
+    }
+
+    /* ── Base ─────────────────────────────────────────────────────────────── */
+    html { scroll-behavior: smooth; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #f5f7fa;
-      color: #1a1a2e;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
+      transition: background .3s, color .3s;
+    }
+
+    /* ── Top nav ──────────────────────────────────────────────────────────── */
+    nav {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      padding: 2rem 1rem;
+      justify-content: space-between;
+      padding: .875rem 2rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 8px rgba(0,0,0,.06);
     }
-    header { text-align: center; margin-bottom: 2rem; }
-    header h1 { font-size: 2rem; font-weight: 700; color: #16213e; }
-    header p  { color: #555; margin-top: 0.4rem; font-size: 0.95rem; }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      font-weight: 800;
+      font-size: 1.2rem;
+      letter-spacing: -.02em;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .nav-brand .logo-dot { color: var(--accent); }
+    .nav-right { display: flex; align-items: center; gap: 1rem; }
+    .nav-badge {
+      font-size: .7rem;
+      font-weight: 600;
+      padding: .2rem .6rem;
+      background: var(--accent-lt);
+      color: var(--accent);
+      border-radius: 999px;
+      border: 1px solid var(--accent);
+    }
+    .theme-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: .3rem .6rem;
+      cursor: pointer;
+      font-size: 1rem;
+      color: var(--muted);
+      transition: border-color .2s, color .2s;
+      line-height: 1;
+    }
+    .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    .page {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 2rem;
+      align-items: start;
+    }
+    @media (max-width: 820px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { order: -1; }
+    }
+
+    /* ── Card ─────────────────────────────────────────────────────────────── */
     .card {
-      background: #fff;
-      border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0,0,0,.08);
-      padding: 2rem;
-      width: 100%;
-      max-width: 560px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      padding: 1.75rem;
     }
-    .drop-zone {
-      border: 2px dashed #cbd5e1;
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 1.25rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .card-title .icon { font-size: 1.1rem; }
+
+    /* ── Tab strip (File / Paste) ─────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      gap: .25rem;
+      margin-bottom: 1.25rem;
+      background: var(--surface2);
+      padding: .25rem;
       border-radius: 8px;
-      padding: 2rem;
+      border: 1px solid var(--border);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: .45rem .75rem;
+      border: none;
+      background: none;
+      border-radius: 6px;
+      font-size: .85rem;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background .2s, color .2s;
+    }
+    .tab-btn.active {
+      background: var(--surface);
+      color: var(--accent);
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Drop zone ────────────────────────────────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 2rem 1rem;
       text-align: center;
       cursor: pointer;
       transition: border-color .2s, background .2s;
-      margin-bottom: 1.2rem;
+      background: var(--surface2);
     }
-    .drop-zone.drag-over { border-color: #6366f1; background: #eef2ff; }
-    .drop-zone svg { width: 40px; height: 40px; color: #94a3b8; margin-bottom: .5rem; }
-    .drop-zone p { color: #64748b; font-size: .9rem; }
-    .drop-zone strong { color: #6366f1; }
-    #file-name { font-size: .85rem; color: #475569; margin-top: .4rem; }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: var(--accent-lt);
+    }
+    .drop-zone svg { width: 36px; height: 36px; color: var(--muted); margin-bottom: .5rem; }
+    .drop-zone .dz-hint { font-size: .85rem; color: var(--muted); }
+    .drop-zone strong { color: var(--accent); }
+    #file-chip {
+      display: none;
+      margin-top: .75rem;
+      background: var(--accent-lt);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: .4rem .75rem;
+      font-size: .82rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ── Paste panel ─────────────────────────────────────────────────────── */
+    #paste-input {
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      padding: .75rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+      font-size: .82rem;
+      color: var(--text);
+      line-height: 1.6;
+      transition: border-color .2s;
+    }
+    #paste-input:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+    .paste-hint {
+      font-size: .75rem;
+      color: var(--muted);
+      margin-top: .4rem;
+    }
+
+    /* ── Format cards ────────────────────────────────────────────────────── */
+    .format-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: .75rem;
+      margin-bottom: 1.25rem;
+    }
+    .fmt-card {
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: .75rem .5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s, transform .1s;
+      background: var(--surface2);
+      user-select: none;
+    }
+    .fmt-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .fmt-card.selected {
+      border-color: var(--accent);
+      background: var(--accent-lt);
+    }
+    .fmt-icon { font-size: 1.6rem; display: block; margin-bottom: .3rem; }
+    .fmt-label { font-size: .75rem; font-weight: 700; color: var(--text); }
+    .fmt-sub   { font-size: .68rem; color: var(--muted); }
+
+    /* ── Form fields ─────────────────────────────────────────────────────── */
     .field { margin-bottom: 1rem; }
-    .field label { display: block; font-weight: 600; font-size: .85rem; margin-bottom: .3rem; color: #334155; }
+    .field label {
+      display: block;
+      font-weight: 600;
+      font-size: .8rem;
+      margin-bottom: .35rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
     .field select, .field input[type=text] {
       width: 100%;
       padding: .5rem .75rem;
-      border: 1px solid #cbd5e1;
+      border: 1px solid var(--border);
       border-radius: 6px;
-      font-size: .9rem;
-      background: #f8fafc;
-      color: #1e293b;
+      font-size: .88rem;
+      background: var(--surface2);
+      color: var(--text);
+      transition: border-color .2s;
     }
     .field select:focus, .field input[type=text]:focus {
-      outline: 2px solid #6366f1;
-      border-color: #6366f1;
+      outline: 2px solid var(--accent);
+      border-color: var(--accent);
     }
-    button[type=submit] {
+    #llm-model-wrap { display: none; }
+
+    /* ── Convert button ──────────────────────────────────────────────────── */
+    #convert-btn {
       width: 100%;
-      padding: .75rem;
-      background: #6366f1;
+      padding: .8rem;
+      background: var(--accent);
       color: #fff;
       border: none;
       border-radius: 8px;
-      font-size: 1rem;
-      font-weight: 600;
+      font-size: .95rem;
+      font-weight: 700;
       cursor: pointer;
-      transition: background .2s;
+      transition: background .2s, transform .1s, box-shadow .2s;
+      letter-spacing: .01em;
+      margin-top: .25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
     }
-    button[type=submit]:hover { background: #4f46e5; }
-    button[type=submit]:disabled { background: #a5b4fc; cursor: default; }
-    #status { margin-top: 1rem; font-size: .9rem; min-height: 1.5rem; }
-    #status.error { color: #dc2626; }
-    #status.success { color: #16a34a; }
-    #download-link {
+    #convert-btn:hover:not(:disabled) {
+      background: var(--accent-h);
+      box-shadow: 0 4px 12px rgba(99,102,241,.35);
+      transform: translateY(-1px);
+    }
+    #convert-btn:disabled { background: #a5b4fc; cursor: default; transform: none; box-shadow: none; }
+
+    /* ── Progress bar ────────────────────────────────────────────────────── */
+    #progress-wrap {
       display: none;
       margin-top: 1rem;
+      height: 4px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--teal));
+      border-radius: 99px;
+      width: 0%;
+      transition: width .4s ease;
+      animation: none;
+    }
+    #progress-bar.indeterminate {
+      width: 40% !important;
+      animation: slide 1.2s ease-in-out infinite;
+    }
+    @keyframes slide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(350%); }
+    }
+
+    /* ── Status message ──────────────────────────────────────────────────── */
+    #status-msg {
+      margin-top: .75rem;
+      font-size: .85rem;
+      min-height: 1.4rem;
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+    }
+    #status-msg.error  { color: var(--red); }
+    #status-msg.success { color: var(--green); }
+    #status-msg.info   { color: var(--muted); }
+
+    /* ── Download area ───────────────────────────────────────────────────── */
+    #download-area {
+      display: none;
+      margin-top: 1rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
       text-align: center;
     }
-    #download-link a {
-      display: inline-block;
-      padding: .6rem 1.5rem;
-      background: #0ea5e9;
+    #download-area .dl-name {
+      font-size: .82rem;
+      color: var(--muted);
+      margin-bottom: .6rem;
+      word-break: break-all;
+    }
+    #dl-anchor {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .6rem 1.4rem;
+      background: var(--teal);
       color: #fff;
       border-radius: 6px;
       text-decoration: none;
-      font-weight: 600;
-      font-size: .9rem;
+      font-weight: 700;
+      font-size: .88rem;
+      transition: background .2s, box-shadow .2s;
     }
-    #download-link a:hover { background: #0284c7; }
-    .badges { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 2rem; justify-content: center; }
-    .badge {
-      background: #f1f5f9;
-      border: 1px solid #e2e8f0;
-      border-radius: 4px;
-      padding: .2rem .6rem;
+    #dl-anchor:hover {
+      background: var(--teal-h);
+      box-shadow: 0 4px 12px rgba(14,165,233,.35);
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    .sidebar { display: flex; flex-direction: column; gap: 1.25rem; }
+
+    /* History list */
+    #history-list { list-style: none; display: flex; flex-direction: column; gap: .5rem; }
+    #history-list li {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: .55rem .75rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: .8rem;
+    }
+    #history-list .h-icon { font-size: 1.1rem; flex-shrink: 0; }
+    #history-list .h-name { flex: 1; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #history-list .h-time { color: var(--muted); font-size: .72rem; flex-shrink: 0; }
+    #history-list a { text-decoration: none; font-size: .72rem; color: var(--teal); font-weight: 600; flex-shrink: 0; }
+    #history-empty { font-size: .82rem; color: var(--muted); text-align: center; padding: .75rem 0; }
+
+    /* Tips */
+    .tip {
+      display: flex;
+      gap: .6rem;
+      padding: .6rem .75rem;
+      border-radius: 6px;
+      font-size: .78rem;
+      line-height: 1.5;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .tip .tip-icon { font-size: 1rem; flex-shrink: 0; }
+    .tip .tip-text { color: var(--muted); }
+    .tip strong { color: var(--text); }
+
+    /* ── Footer ──────────────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
       font-size: .75rem;
-      color: #475569;
+      color: var(--muted);
+      padding: 1.5rem 1rem 2rem;
+      border-top: 1px solid var(--border);
     }
+    footer a { color: var(--accent); text-decoration: none; }
   </style>
 </head>
 <body>
-<header>
-  <h1>MD2Office</h1>
-  <p>Convert Markdown, text, or HTML to PPTX, DOCX, or XLSX</p>
-</header>
 
-<div class="card">
-  <form id="convert-form" enctype="multipart/form-data">
-    <div class="drop-zone" id="drop-zone">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/>
-        <line x1="12" y1="3" x2="12" y2="15"/>
-      </svg>
-      <p>Drop your file here or <strong>click to browse</strong></p>
-      <p id="file-name">No file selected</p>
-      <input type="file" id="file-input" name="file"
-             accept=".md,.txt,.html,.htm" style="display:none" required />
+<!-- ── Top nav ── -->
+<nav>
+  <a class="nav-brand" href="/">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/>
+      <line x1="16" y1="17" x2="8" y2="17"/>
+      <polyline points="10 9 9 9 8 9"/>
+    </svg>
+    MD<span class="logo-dot">2</span>Office
+  </a>
+  <div class="nav-right">
+    <span class="nav-badge">v0.2.7</span>
+    <button class="theme-btn" id="theme-toggle" title="Toggle dark mode">🌙</button>
+  </div>
+</nav>
+
+<!-- ── Main layout ── -->
+<div class="page">
+
+  <!-- ── Left: converter ── -->
+  <main>
+    <div class="card">
+      <div class="card-title"><span class="icon">⚡</span> Convert Document</div>
+
+      <!-- Input tabs -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="file">📁 Upload File</button>
+        <button class="tab-btn" data-tab="paste">✏️ Paste / Type</button>
+      </div>
+
+      <!-- File tab -->
+      <div class="tab-panel active" id="tab-file">
+        <div class="drop-zone" id="drop-zone">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p class="dz-hint">Drop your file here or <strong>click to browse</strong></p>
+          <p class="dz-hint" style="margin-top:.25rem;font-size:.75rem">.md &nbsp;.txt &nbsp;.html &nbsp;.htm</p>
+          <input type="file" id="file-input" accept=".md,.txt,.html,.htm" style="display:none" />
+          <div id="file-chip">📄 <span id="file-chip-name"></span></div>
+        </div>
+      </div>
+
+      <!-- Paste tab -->
+      <div class="tab-panel" id="tab-paste">
+        <textarea id="paste-input" placeholder="# My Document
+
+## Section
+
+Start typing your Markdown here..."></textarea>
+        <p class="paste-hint">Supports Markdown, plain text, and HTML. The content will be saved as <code>pasted.md</code>.</p>
+        <div class="field" style="margin-top:.75rem">
+          <label>Input format</label>
+          <select id="paste-fmt">
+            <option value=".md">Markdown (.md)</option>
+            <option value=".txt">Plain text (.txt)</option>
+            <option value=".html">HTML (.html)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Format selector -->
+      <div style="margin-top:1.25rem">
+        <div class="field" style="margin-bottom:.75rem">
+          <label>Output format</label>
+        </div>
+        <div class="format-grid">
+          <div class="fmt-card selected" data-fmt="pptx">
+            <span class="fmt-icon">📊</span>
+            <div class="fmt-label">PPTX</div>
+            <div class="fmt-sub">PowerPoint</div>
+          </div>
+          <div class="fmt-card" data-fmt="docx">
+            <span class="fmt-icon">📝</span>
+            <div class="fmt-label">DOCX</div>
+            <div class="fmt-sub">Word</div>
+          </div>
+          <div class="fmt-card" data-fmt="xlsx">
+            <span class="fmt-icon">📈</span>
+            <div class="fmt-label">XLSX</div>
+            <div class="fmt-sub">Excel</div>
+          </div>
+        </div>
+        <input type="hidden" id="selected-fmt" value="pptx" />
+      </div>
+
+      <!-- LLM options (collapsible) -->
+      <details style="margin-bottom:1rem">
+        <summary style="cursor:pointer;font-size:.82rem;font-weight:700;color:var(--muted);
+                        text-transform:uppercase;letter-spacing:.04em;user-select:none;
+                        list-style:none;display:flex;align-items:center;gap:.4rem">
+          <span>⚙️ LLM Options</span>
+          <span style="font-weight:400;color:var(--muted)"> (optional)</span>
+        </summary>
+        <div style="margin-top:.75rem">
+          <div class="field">
+            <label>LLM provider</label>
+            <select id="llm-provider">
+              <option value="">None — rule-based only</option>
+              <option value="ollama">Ollama (local)</option>
+              <option value="openai">OpenAI</option>
+              <option value="claude">Anthropic Claude</option>
+              <option value="groq">Groq</option>
+              <option value="openrouter">OpenRouter</option>
+            </select>
+          </div>
+          <div class="field" id="llm-model-wrap">
+            <label>Model name <span style="text-transform:none;font-weight:400">(leave blank for default)</span></label>
+            <input type="text" id="llm-model" placeholder="e.g. mistral, gpt-4o-mini" />
+          </div>
+        </div>
+      </details>
+
+      <!-- Convert button -->
+      <button id="convert-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        Convert
+      </button>
+
+      <!-- Progress -->
+      <div id="progress-wrap">
+        <div id="progress-bar" class="indeterminate"></div>
+      </div>
+
+      <!-- Status -->
+      <div id="status-msg" class="info"></div>
+
+      <!-- Download -->
+      <div id="download-area">
+        <div class="dl-name" id="dl-filename"></div>
+        <a id="dl-anchor" href="#">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+
+    <!-- Conversion history -->
+    <div class="card">
+      <div class="card-title"><span class="icon">🕒</span> Recent Conversions</div>
+      <ul id="history-list">
+        <li id="history-empty"><span id="history-empty-text">No conversions yet</span></li>
+      </ul>
     </div>
 
-    <div class="field">
-      <label for="output-type">Output format</label>
-      <select name="output_type" id="output-type">
-        <option value="pptx">PPTX — PowerPoint presentation</option>
-        <option value="docx">DOCX — Word document</option>
-        <option value="xlsx">XLSX — Excel spreadsheet</option>
-      </select>
+    <!-- Quick tips -->
+    <div class="card">
+      <div class="card-title"><span class="icon">💡</span> Quick Tips</div>
+      <div style="display:flex;flex-direction:column;gap:.5rem">
+        <div class="tip">
+          <span class="tip-icon">📄</span>
+          <span class="tip-text"><strong>PPTX:</strong> Use <code>## Heading</code> for each slide. Bullet points map to slide body.</span>
+        </div>
+        <div class="tip">
+          <span class="tip-icon">📝</span>
+          <span class="tip-text"><strong>DOCX:</strong> Headings become section titles. Tables and lists are preserved.</span>
+        </div>
+        <div class="tip">
+          <span class="tip-icon">📈</span>
+          <span class="tip-text"><strong>XLSX:</strong> Markdown tables map directly to sheet rows and columns.</span>
+        </div>
+        <div class="tip">
+          <span class="tip-icon">🤖</span>
+          <span class="tip-text"><strong>LLM:</strong> Ollama runs locally. OpenAI/Claude/Groq need API keys via environment variables.</span>
+        </div>
+      </div>
     </div>
 
-    <div class="field">
-      <label for="llm-provider">LLM normalisation (optional)</label>
-      <select name="llm_provider" id="llm-provider">
-        <option value="">None (rule-based only)</option>
-        <option value="ollama">Ollama (local)</option>
-        <option value="openai">OpenAI</option>
-        <option value="claude">Claude</option>
-        <option value="groq">Groq</option>
-        <option value="openrouter">OpenRouter</option>
-      </select>
+    <!-- Supported formats -->
+    <div class="card">
+      <div class="card-title"><span class="icon">📋</span> Supported Inputs</div>
+      <div style="display:flex;flex-direction:column;gap:.35rem">
+        <div class="tip"><span class="tip-icon">✍️</span><span class="tip-text"><strong>.md</strong> — Markdown (headings, lists, tables, code)</span></div>
+        <div class="tip"><span class="tip-icon">📃</span><span class="tip-text"><strong>.txt</strong> — Plain text (auto-parsed by structure)</span></div>
+        <div class="tip"><span class="tip-icon">🌐</span><span class="tip-text"><strong>.html</strong> — HTML (full inline/block parsing)</span></div>
+      </div>
     </div>
 
-    <div class="field">
-      <label for="llm-model">LLM model name <span style="font-weight:400;color:#94a3b8">(leave blank for provider default)</span></label>
-      <input type="text" name="llm_model" id="llm-model" placeholder="e.g. mistral, gpt-4o-mini" />
-    </div>
-
-    <button type="submit" id="convert-btn">Convert</button>
-    <div id="status"></div>
-    <div id="download-link"><a id="dl-anchor" href="#">Download output file</a></div>
-  </form>
+  </aside>
 </div>
 
-<div class="badges">
-  <span class="badge">md .txt .html → .pptx .docx .xlsx</span>
-  <span class="badge">Template-driven</span>
-  <span class="badge">LLM-optional</span>
-  <span class="badge">Open Source · MIT</span>
-</div>
+<!-- ── Footer ── -->
+<footer>
+  MD2Office &#x2014; Open Source &#xB7; MIT &#xB7;
+  <a href="https://github.com/sage-khan/text2officeprocessor" target="_blank" rel="noopener">GitHub</a>
+</footer>
 
 <script>
-const dropZone = document.getElementById('drop-zone');
-const fileInput = document.getElementById('file-input');
-const fileName  = document.getElementById('file-name');
-const form      = document.getElementById('convert-form');
-const status    = document.getElementById('status');
-const btn       = document.getElementById('convert-btn');
-const dlDiv     = document.getElementById('download-link');
-const dlAnchor  = document.getElementById('dl-anchor');
+/* ── Theme toggle ─────────────────────────────────────────────────────────── */
+const html = document.documentElement;
+const themeBtn = document.getElementById('theme-toggle');
+function applyTheme(t) {
+  html.setAttribute('data-theme', t);
+  themeBtn.textContent = t === 'dark' ? '☀️' : '🌙';
+  localStorage.setItem('md2office-theme', t);
+}
+applyTheme(localStorage.getItem('md2office-theme') || 'light');
+themeBtn.addEventListener('click', () => {
+  applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+});
+
+/* ── Tab switching ────────────────────────────────────────────────────────── */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+/* ── Format cards ─────────────────────────────────────────────────────────── */
+const fmtInput = document.getElementById('selected-fmt');
+document.querySelectorAll('.fmt-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.fmt-card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+    fmtInput.value = card.dataset.fmt;
+  });
+});
+
+/* ── Drop zone ────────────────────────────────────────────────────────────── */
+const dropZone   = document.getElementById('drop-zone');
+const fileInput  = document.getElementById('file-input');
+const fileChip   = document.getElementById('file-chip');
+const chipName   = document.getElementById('file-chip-name');
 
 dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+['dragover','dragenter'].forEach(ev => dropZone.addEventListener(ev, e => {
+  e.preventDefault(); dropZone.classList.add('drag-over');
+}));
+['dragleave','dragend'].forEach(ev => dropZone.addEventListener(ev, () => {
+  dropZone.classList.remove('drag-over');
+}));
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
-  if (e.dataTransfer.files.length) {
-    fileInput.files = e.dataTransfer.files;
-    fileName.textContent = e.dataTransfer.files[0].name;
-  }
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
 });
 fileInput.addEventListener('change', () => {
-  fileName.textContent = fileInput.files.length ? fileInput.files[0].name : 'No file selected';
+  if (fileInput.files.length) setFile(fileInput.files[0]);
+});
+function setFile(f) {
+  chipName.textContent = f.name;
+  fileChip.style.display = 'block';
+}
+
+/* ── LLM model field visibility ───────────────────────────────────────────── */
+const llmProvider = document.getElementById('llm-provider');
+const llmModelWrap = document.getElementById('llm-model-wrap');
+llmProvider.addEventListener('change', () => {
+  llmModelWrap.style.display = llmProvider.value ? 'block' : 'none';
 });
 
-form.addEventListener('submit', async e => {
-  e.preventDefault();
-  if (!fileInput.files.length) { setStatus('Please select a file.', 'error'); return; }
+/* ── History ──────────────────────────────────────────────────────────────── */
+const historyList = document.getElementById('history-list');
+const historyEmpty = document.getElementById('history-empty');
+const FMT_ICONS = { pptx: '📊', docx: '📝', xlsx: '📈' };
+const history = [];
+function addHistory(name, fmt, url) {
+  const now = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  history.unshift({ name, fmt, url, time: now });
+  if (history.length > 8) history.pop();
+  renderHistory();
+}
+function renderHistory() {
+  historyList.innerHTML = '';
+  if (!history.length) {
+    historyList.innerHTML = '<li id="history-empty"><span>No conversions yet</span></li>';
+    return;
+  }
+  history.forEach(h => {
+    const li = document.createElement('li');
+    li.innerHTML = \`
+      <span class="h-icon">\${FMT_ICONS[h.fmt] || '📄'}</span>
+      <span class="h-name" title="\${h.name}">\${h.name}</span>
+      <span class="h-time">\${h.time}</span>
+      <a href="\${h.url}" download="\${h.name}">↓</a>
+    \`;
+    historyList.appendChild(li);
+  });
+}
 
-  btn.disabled = true;
-  dlDiv.style.display = 'none';
-  setStatus('Converting\u2026', '');
+/* ── Conversion ───────────────────────────────────────────────────────────── */
+const convertBtn    = document.getElementById('convert-btn');
+const progressWrap  = document.getElementById('progress-wrap');
+const progressBar   = document.getElementById('progress-bar');
+const statusMsg     = document.getElementById('status-msg');
+const downloadArea  = document.getElementById('download-area');
+const dlFilename    = document.getElementById('dl-filename');
+const dlAnchor      = document.getElementById('dl-anchor');
+const pasteInput    = document.getElementById('paste-input');
+const pasteFmt      = document.getElementById('paste-fmt');
+const llmModel      = document.getElementById('llm-model');
 
-  const data = new FormData(form);
+function setStatus(msg, cls = 'info') {
+  statusMsg.textContent = msg;
+  statusMsg.className = cls;
+}
+function showProgress(on) {
+  progressWrap.style.display = on ? 'block' : 'none';
+  progressBar.classList.toggle('indeterminate', on);
+}
+
+convertBtn.addEventListener('click', async () => {
+  const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
+  const fmt = fmtInput.value;
+  const provider = llmProvider.value;
+  const model = llmModel.value.trim();
+
+  const formData = new FormData();
+  formData.append('output_type', fmt);
+  if (provider) formData.append('llm_provider', provider);
+  if (model)    formData.append('llm_model', model);
+
+  if (activeTab === 'file') {
+    if (!fileInput.files.length) { setStatus('⚠ Please select a file first.', 'error'); return; }
+    formData.append('file', fileInput.files[0]);
+  } else {
+    const txt = pasteInput.value.trim();
+    if (!txt) { setStatus('⚠ Please enter some content.', 'error'); return; }
+    const ext = pasteFmt.value;
+    const blob = new Blob([txt], { type: 'text/plain' });
+    formData.append('file', blob, 'pasted' + ext);
+  }
+
+  convertBtn.disabled = true;
+  downloadArea.style.display = 'none';
+  showProgress(true);
+  setStatus('Converting, please wait…', 'info');
 
   try {
-    const resp = await fetch('/convert', { method: 'POST', body: data });
+    const resp = await fetch('/convert', { method: 'POST', body: formData });
+    showProgress(false);
+
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-      setStatus('\u274c ' + (err.detail || 'Conversion failed.'), 'error');
+      setStatus('✗ ' + (err.detail || 'Conversion failed.'), 'error');
       return;
     }
+
     const blob = await resp.blob();
-    const cd   = resp.headers.get('content-disposition') || '';
-    const match = cd.match(/filename="?([^"]+)"?/);
-    const outName = match ? match[1] : 'output';
+    const cd = resp.headers.get('content-disposition') || '';
+    const m  = cd.match(/filename="?([^"]+)"?/);
+    const outName = m ? m[1] : 'output.' + fmt;
     const url = URL.createObjectURL(blob);
+
+    dlFilename.textContent = outName;
     dlAnchor.href = url;
     dlAnchor.download = outName;
-    dlDiv.style.display = 'block';
-    setStatus('\u2705 Conversion complete!', 'success');
+    downloadArea.style.display = 'block';
+    setStatus('✓ Conversion complete!', 'success');
+    addHistory(outName, fmt, url);
+
   } catch (err) {
-    setStatus('\u274c Network error: ' + err.message, 'error');
+    showProgress(false);
+    setStatus('✗ Network error: ' + err.message, 'error');
   } finally {
-    btn.disabled = false;
+    convertBtn.disabled = false;
   }
 });
-
-function setStatus(msg, cls) {
-  status.textContent = msg;
-  status.className = cls;
-}
 </script>
 </body>
 </html>
