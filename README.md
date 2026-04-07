@@ -146,6 +146,26 @@ md2office drawio-export diagrams/architecture.drawio --output outputs/architectu
 md2office drawio-export diagrams/multi-page.drawio --all-pages
 ```
 
+### Watch mode — auto-regenerate on save
+
+```bash
+md2office watch \
+  --input notes.md \
+  --output presentation.pptx \
+  --type pptx
+```
+
+Every time you save `notes.md`, the output is regenerated automatically. A 1-second debounce prevents multiple rapid saves from triggering redundant builds. Press `Ctrl+C` to stop.
+
+```bash
+md2office watch \
+  --input slides.md \
+  --output presentation.xlsx \
+  --type xlsx \
+  --debounce 0.5 \
+  --no-validate
+```
+
 ### LLM semantic validation
 
 After rendering, ask an LLM to check the output for truncated text, unreplaced placeholders, content mismatches, and empty sections:
@@ -459,7 +479,7 @@ docker compose run --rm md2office convert \
 python -m pytest tests/ -v
 ```
 
-Expected: **71 tests pass**.
+Expected: **76 tests pass**.
 
 ---
 

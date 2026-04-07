@@ -440,6 +440,130 @@ def batch(
         raise typer.Exit(code=1)
 
 
+@app.command("watch")
+def watch(
+    input_file: Path = typer.Option(
+        ..., "--input", "-i", help="Input .md / .txt / .html file to watch."
+    ),
+    output: Path = typer.Option(..., "--output", "-o", help="Output file path."),
+    output_type: OutputFormat = typer.Option(
+        OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
+    ),
+    template: Optional[Path] = typer.Option(
+        None, "--template", "-t",
+        help="Template .pptx or .docx file. Omit to use the bundled generic template.",
+    ),
+    slides_md: Optional[Path] = typer.Option(
+        None, "--slides-md", "-s",
+        help="Pre-authored slides markdown. Watched alongside --input when provided.",
+    ),
+    llm_provider: Optional[str] = typer.Option(
+        None, "--llm", help="LLM provider for normalization."
+    ),
+    llm_model: Optional[str] = typer.Option(
+        None, "--llm-model", help="Model name for the LLM provider."
+    ),
+    validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after each regeneration."),
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c", help="Path to a custom rules YAML file."
+    ),
+    debounce: float = typer.Option(
+        1.0, "--debounce", help="Seconds to wait after a change before regenerating (default: 1.0)."
+    ),
+    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+) -> None:
+    """Watch an input file and auto-regenerate the output on every save."""
+    _setup_logging(log_level)
+    logger = logging.getLogger("md2office.watch")
+
+    if not input_file.exists():
+        typer.echo(f"[ERROR] Input file not found: {input_file}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        from watchdog.events import FileSystemEventHandler
+        from watchdog.observers import Observer
+    except ImportError:
+        typer.echo("[ERROR] watchdog is not installed. Run: pip install watchdog", err=True)
+        raise typer.Exit(code=1)
+
+    provider = None
+    if llm_provider:
+        try:
+            llm_cfg: dict = {}
+            if llm_model:
+                llm_cfg["model"] = llm_model
+            provider = build_provider(llm_provider, llm_cfg)
+        except Exception as exc:
+            logger.warning("Could not initialize LLM provider: %s", exc)
+
+    resolved_template = _resolve_template(template, output_type)
+    if resolved_template and resolved_template != template:
+        typer.echo(f"  Using bundled template: {resolved_template.name}")
+
+    # Files to monitor (deduped)
+    watched_files = {input_file.resolve()}
+    if slides_md:
+        watched_files.add(slides_md.resolve())
+
+    import threading
+    import time
+
+    _timer: list = [None]
+    _lock = threading.Lock()
+
+    def _regenerate() -> None:
+        typer.echo(f"\n[{__import__('datetime').datetime.now().strftime('%H:%M:%S')}] Change detected — regenerating...")
+        try:
+            if output_type == OutputFormat.PPTX:
+                _run_pptx(input_file, slides_md, resolved_template, output, provider, validate, config, logger)
+            elif output_type == OutputFormat.DOCX:
+                _run_docx(input_file, resolved_template, output, provider, validate, config, logger)
+            elif output_type == OutputFormat.XLSX:
+                _run_xlsx(input_file, output, provider, validate, logger)
+            typer.echo("  Done.")
+        except Exception as exc:
+            typer.echo(f"  [ERROR] {exc}", err=True)
+
+    def _schedule_regenerate() -> None:
+        with _lock:
+            if _timer[0] is not None:
+                _timer[0].cancel()
+            _timer[0] = threading.Timer(debounce, _regenerate)
+            _timer[0].start()
+
+    class _ChangeHandler(FileSystemEventHandler):
+        def on_modified(self, event):
+            if Path(event.src_path).resolve() in watched_files:
+                _schedule_regenerate()
+
+        def on_created(self, event):
+            if Path(event.src_path).resolve() in watched_files:
+                _schedule_regenerate()
+
+    # Run once immediately on start
+    _regenerate()
+
+    watch_dirs = {p.parent for p in watched_files}
+    observer = Observer()
+    handler = _ChangeHandler()
+    for d in watch_dirs:
+        observer.schedule(handler, str(d), recursive=False)
+
+    observer.start()
+    file_list = ", ".join(p.name for p in watched_files)
+    typer.echo(f"\nWatching: {file_list}  (Ctrl+C to stop)\n")
+
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        observer.stop()
+        typer.echo("\nWatch mode stopped.")
+    finally:
+        observer.join()
+
+
 @app.command("drawio-export")
 def drawio_export(
     input_file: Path = typer.Argument(..., help="Source .drawio file to export."),

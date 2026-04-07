@@ -6,6 +6,7 @@ lxml>=5.1.0
 typer>=0.12.3
 pyyaml>=6.0.1
 requests>=2.31.0
+watchdog>=4.0.0
 
 # Optional LLM providers (install the ones you use)
 openai>=1.30.0

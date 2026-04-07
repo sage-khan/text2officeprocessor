@@ -189,5 +189,28 @@ All changes are recorded here with timestamps. Append-only.
 - 11 new LLM validator tests: JSON parsing (clean, fenced, embedded, malformed), provider mocked validate (no issues, with issues, LLM failure, unsupported format, missing file), CLI warn-on-no-provider
 - Total test count: **71 passed**
 
+---
+
+## [0.2.5] — 2026-04-07
+
+### Added
+
+**`md2office watch` command (`src/cli/main.py`):**
+- Watches an input file (`.md`, `.txt`, `.html`) and auto-regenerates the output on every save
+- `--input` / `--output` / `--type` — same semantics as `convert`
+- `--slides-md` — if provided, also watched; any save triggers a rebuild
+- `--template` — optional; falls back to bundled template for PPTX/DOCX
+- `--debounce N` — wait N seconds after the last change before regenerating (default: 1.0 s); debounce collapses rapid saves into one regeneration
+- `--validate/--no-validate` — programmatic validation after each rebuild
+- `--llm` / `--llm-model` — LLM normalization applied to each rebuild
+- Runs one immediate conversion on startup before entering the watch loop
+- Graceful `Ctrl+C` handling (prints "Watch mode stopped.")
+- Uses `watchdog` for efficient inotify-based file monitoring; directory polled at the parent-dir level
+- `watchdog` added to core dependencies (`requirements.txt`, `pyproject.toml v0.2.4`)
+
+**Tests:**
+- 5 new watch tests: missing input exits non-zero, output created on startup, "Watching" message, PPTX bundled template, debounce collapses rapid events
+- Total test count: **76 passed**
+
 **Known limitations:**
 - No web UI
