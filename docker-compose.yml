@@ -1,0 +1,64 @@
+services:
+
+  # ── md2office ──────────────────────────────────────────────────────────────
+  # Primary conversion service. Mount your working directory to /data.
+  #
+  # Usage:
+  #   docker compose run --rm md2office convert \
+  #     --slides-md /data/slides.md \
+  #     --template  /data/template.pptx \
+  #     --output    /data/output.pptx \
+  #     --type pptx
+  md2office:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: md2office:latest
+    volumes:
+      - ${DATA_DIR:-./outputs}:/data
+    environment:
+      # LLM API keys — set these in a .env file, never hardcode
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      # When using the Ollama service below, this URL is pre-configured
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+        required: false
+    networks:
+      - md2office-net
+
+  # ── ollama (optional local LLM) ────────────────────────────────────────────
+  # Provides a local LLM so you can use --llm ollama without any API key.
+  # The service is optional — md2office works without it using rule-based
+  # normalization. Set OLLAMA_ENABLED=false to skip it.
+  #
+  # First run: docker compose run --rm ollama ollama pull mistral
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - llm
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - md2office-net
+
+networks:
+  md2office-net:
+    driver: bridge
+
+volumes:
+  ollama-models:
+    name: md2office-ollama-models

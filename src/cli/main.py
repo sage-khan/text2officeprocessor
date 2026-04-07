@@ -1,0 +1,252 @@
+"""
+MD2Office CLI — entry point for the md2office command-line tool.
+
+Usage:
+    md2office convert --input input.md --template template.pptx --output output.pptx --type pptx
+    md2office convert --input input.md --template template.docx --output output.docx --type docx
+    md2office convert --input input.md --output output.xlsx --type xlsx
+    md2office convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
+    md2office convert --slides-md slides.md --template template.pptx --output out.pptx --config my-rules.yaml
+    md2office analyze template.pptx
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from pathlib import Path
+from typing import Optional
+
+import typer
+
+from src.core.engines.docx.engine import DOCXEngine
+from src.core.engines.pptx.engine import PPTXEngine
+from src.core.engines.xlsx.engine import XLSXEngine
+from src.core.exceptions import MD2OfficeError
+from src.core.llm.providers import build_provider
+from src.core.models import OutputFormat
+from src.core.parser.preprocessor import InputPreprocessor
+from src.core.planner.content_planner import ContentPlanner
+from src.core.validation.validator import ProgrammaticValidator
+
+app = typer.Typer(
+    name="md2office",
+    help="Convert markdown / text / HTML to PPTX, DOCX, or XLSX using template-driven rendering.",
+    add_completion=False,
+)
+
+LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING}
+
+
+def _setup_logging(level: str) -> None:
+    logging.basicConfig(
+        format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
+        level=LOG_LEVELS.get(level.lower(), logging.INFO),
+    )
+
+
+@app.command("convert")
+def convert(
+    input_file: Optional[Path] = typer.Option(
+        None, "--input", "-i", help="Input .md / .txt / .html file."
+    ),
+    slides_md: Optional[Path] = typer.Option(
+        None, "--slides-md", "-s",
+        help="Pre-authored slides markdown file (## SLIDE N format). Bypasses LLM normalization.",
+    ),
+    template: Optional[Path] = typer.Option(
+        None, "--template", "-t", help="Template .pptx or .docx file."
+    ),
+    output: Path = typer.Option(..., "--output", "-o", help="Output file path."),
+    output_type: OutputFormat = typer.Option(
+        OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
+    ),
+    llm_provider: Optional[str] = typer.Option(
+        None, "--llm", help="LLM provider: ollama | openai | claude | openrouter | groq."
+    ),
+    llm_model: Optional[str] = typer.Option(
+        None, "--llm-model", help="Model name for the LLM provider."
+    ),
+    validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after rendering."),
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c",
+        help="Path to a custom rules YAML file (overrides config/default_rules.yaml).",
+    ),
+    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+) -> None:
+    """Convert an input document to PPTX, DOCX, or XLSX."""
+    _setup_logging(log_level)
+    logger = logging.getLogger("md2office.cli")
+
+    # -- Resolve LLM provider (optional)
+    provider = None
+    if llm_provider:
+        try:
+            llm_config = {}
+            if llm_model:
+                llm_config["model"] = llm_model
+            provider = build_provider(llm_provider, llm_config)
+            logger.info("Using LLM provider: %s", llm_provider)
+        except Exception as exc:
+            logger.warning("Could not initialize LLM provider '%s': %s — proceeding without LLM.", llm_provider, exc)
+
+    try:
+        if output_type == OutputFormat.PPTX:
+            _run_pptx(input_file, slides_md, template, output, provider, validate, config, logger)
+        elif output_type == OutputFormat.DOCX:
+            _run_docx(input_file, template, output, provider, validate, config, logger)
+        elif output_type == OutputFormat.XLSX:
+            _run_xlsx(input_file, output, provider, validate, logger)
+    except MD2OfficeError as exc:
+        typer.echo(f"\n[ERROR] {exc}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        logger.exception("Unexpected error during conversion")
+        typer.echo(f"\n[ERROR] Unexpected error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+def _run_pptx(
+    input_file: Optional[Path],
+    slides_md: Optional[Path],
+    template: Optional[Path],
+    output: Path,
+    provider,
+    validate: bool,
+    config: Optional[Path],
+    logger: logging.Logger,
+) -> None:
+    from src.core.llm.normalizer import LLMNormalizer
+
+    if not template:
+        typer.echo("[ERROR] --template is required for PPTX output.", err=True)
+        raise typer.Exit(code=1)
+
+    if slides_md:
+        # Direct mode: parse pre-authored slides markdown
+        logger.info("Using pre-authored slides markdown: %s", slides_md)
+        plan = ContentPlanner.parse_slides_markdown(slides_md)
+    elif input_file:
+        # Full pipeline mode
+        logger.info("Running full pipeline on: %s", input_file)
+        preprocessor = InputPreprocessor()
+        parsed = preprocessor.parse(input_file)
+
+        normalizer = LLMNormalizer(provider=provider)
+        normalized = normalizer.normalize(parsed)
+
+        planner = ContentPlanner(config_path=config)
+        plan = planner.plan_slides(parsed, normalized)
+    else:
+        typer.echo("[ERROR] Either --input or --slides-md is required.", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"  Slides to render: {len(plan.slides)}")
+    engine = PPTXEngine()
+    result_path = engine.render(plan, template, output)
+    typer.echo(f"  Output written: {result_path}")
+
+    if validate:
+        validator = ProgrammaticValidator()
+        validation = validator.validate_pptx(result_path)
+        validator.print_report(validation)
+
+
+def _run_docx(
+    input_file: Optional[Path],
+    template: Optional[Path],
+    output: Path,
+    provider,
+    validate: bool,
+    config: Optional[Path],
+    logger: logging.Logger,
+) -> None:
+    if not input_file:
+        typer.echo("[ERROR] --input is required for DOCX output.", err=True)
+        raise typer.Exit(code=1)
+    if not template:
+        typer.echo("[ERROR] --template is required for DOCX output.", err=True)
+        raise typer.Exit(code=1)
+
+    preprocessor = InputPreprocessor()
+    parsed = preprocessor.parse(input_file)
+    plan = ContentPlanner.plan_document(parsed)
+
+    typer.echo(f"  Sections to render: {len(plan.sections)}")
+    engine = DOCXEngine()
+    result_path = engine.render(plan, template, output)
+    typer.echo(f"  Output written: {result_path}")
+
+    if validate:
+        validator = ProgrammaticValidator()
+        validation = validator.validate_docx(result_path)
+        validator.print_report(validation)
+
+
+def _run_xlsx(
+    input_file: Optional[Path],
+    output: Path,
+    provider,
+    validate: bool,
+    logger: logging.Logger,
+) -> None:
+    if not input_file:
+        typer.echo("[ERROR] --input is required for XLSX output.", err=True)
+        raise typer.Exit(code=1)
+
+    preprocessor = InputPreprocessor()
+    parsed = preprocessor.parse(input_file)
+    plan = ContentPlanner.plan_spreadsheet(parsed)
+
+    typer.echo(f"  Sheets to render: {len(plan.sheets)}")
+    engine = XLSXEngine()
+    result_path = engine.render(plan, output)
+    typer.echo(f"  Output written: {result_path}")
+
+    if validate:
+        validator = ProgrammaticValidator()
+        validation = validator.validate_xlsx(result_path)
+        validator.print_report(validation)
+
+
+@app.command("analyze")
+def analyze(
+    template: Path = typer.Argument(..., help="Template .pptx file to analyze."),
+    log_level: str = typer.Option("info", "--log-level", help="Logging level."),
+) -> None:
+    """Analyze a PPTX template: list all slides, shapes, and text runs."""
+    _setup_logging(log_level)
+
+    if not template.exists():
+        typer.echo(f"[ERROR] Template not found: {template}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        from pptx import Presentation
+    except ImportError:
+        typer.echo("[ERROR] python-pptx is not installed.", err=True)
+        raise typer.Exit(code=1)
+
+    prs = Presentation(str(template))
+    typer.echo(f"\nTemplate: {template.name}")
+    typer.echo(f"Total slides: {len(prs.slides)}\n")
+
+    for i, slide in enumerate(prs.slides):
+        typer.echo(f"=== SLIDE {i} (layout: {slide.slide_layout.name}) ===")
+        for j, shape in enumerate(slide.shapes):
+            if shape.has_text_frame:
+                for k, para in enumerate(shape.text_frame.paragraphs):
+                    for r, run in enumerate(para.runs):
+                        if run.text.strip():
+                            typer.echo(
+                                f'  Shape {j} "{shape.name}" para[{k}] run[{r}]: {repr(run.text)}'
+                            )
+        typer.echo("")
+
+
+def main() -> None:
+    app()
+
+
+if __name__ == "__main__":
+    main()

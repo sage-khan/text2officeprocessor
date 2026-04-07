@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# md2office — invoke the md2office CLI from anywhere.
+#
+# Usage examples:
+#   md2office convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
+#   md2office convert --input content.md --template template.pptx --output out.pptx --type pptx
+#   md2office analyze template.pptx
+#
+# This script resolves the project venv automatically regardless of
+# where you call it from.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_PYTHON="${SCRIPT_DIR}/.venv/bin/python"
+
+if [[ ! -x "${VENV_PYTHON}" ]]; then
+    echo "ERROR: Virtual environment not found at ${SCRIPT_DIR}/.venv" >&2
+    echo "Run: cd ${SCRIPT_DIR} && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt" >&2
+    exit 1
+fi
+
+exec "${VENV_PYTHON}" -m src.cli.main "$@"

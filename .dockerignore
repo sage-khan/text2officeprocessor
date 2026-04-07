@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environment — never bake the venv into the image
+.venv/
+venv/
+env/
+
+# Tests (not needed in the runtime image)
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.sw[op]
+
+# Secrets
+.env
+.env.*
+secrets/
+*.key
+*.pem
+
+# Generated outputs
+outputs/
+
+# Docs and dev files (keep image lean)
+docs/
+*.md
+!README.md
+*.drawio
+
+# Git
+.git/
+.gitignore

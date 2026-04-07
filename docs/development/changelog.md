@@ -1,0 +1,63 @@
+# Changelog
+
+All changes are recorded here with timestamps. Append-only.
+
+---
+
+## [0.1.0] — 2026-04-07
+
+### Initial Release
+
+**Architecture established:**
+- Full pipeline: `.md` / `.txt` / `.html` → `.pptx` / `.docx` / `.xlsx`
+- `InputPreprocessor` — encoding-safe parser for markdown, plain text, HTML
+- `LLMNormalizer` — semantic tagging with rule-based fallback; supports Ollama, OpenAI, Claude, OpenRouter, Groq
+- `ContentPlanner` — maps normalized sections to `SlideDefinition` objects; also parses canonical `## SLIDE N` format directly
+- `PPTXEngine` — SlidePart cloning method; three-layer text replacement; background preservation verified
+- `DOCXEngine` — template body injection; image/logo preservation; in-order body iteration
+- `XLSXEngine` — openpyxl structured mapping; auto column widths; header freeze
+- `ProgrammaticValidator` — artifact checks, placeholder checks, file size heuristics
+- `CLI` (Typer) — `md2office convert` and `md2office analyze` commands
+
+**Test results (2026-04-07):**
+- 38/38 unit and integration tests pass
+- End-to-end PPTX test: 22 slides, 2.08 MB, all backgrounds preserved, validation passed
+- All slide types verified visually: Section Header, Video Title, Multi-Point, Key Highlights 4-col, Excellence Grid, Stats, Single Point, Callout, Next Video
+
+**Test data:**
+- EC-Council AI Algorithmic Auditing section-01 slides markdown and template used as primary e2e fixture
+
+---
+
+## [0.1.1] — 2026-04-07
+
+### Added
+
+**Text overflow auto-shrink (`fit_text_to_shape`):**
+- Post-injection step on every slide in `PPTXEngine._render_slide()`
+- Estimates overflow via bounding box geometry (character count vs. shape width × height)
+- Reduces run font sizes in 2pt steps until content fits or `min_font_size_pt` (default 8pt) is reached
+- Skips shapes with `MSO_AUTO_SIZE` already set by the template
+- Recurses into group shapes
+- Config knobs exposed in `config/default_rules.yaml` under `text_overflow:`
+- Fix: `PP_AUTO_SIZE` → `MSO_AUTO_SIZE` (enum renamed in python-pptx 1.x)
+
+**Docker support:**
+- `Dockerfile` — multi-stage build (builder + slim runtime); non-root `appuser`; `/data` volume mount point
+- `docker-compose.yml` — `md2office` service + optional `ollama` sidecar (behind `llm` profile)
+- `.dockerignore` — excludes venv, tests, outputs, secrets, IDE files
+- Image builds successfully: `docker build -t md2office .`
+
+**CLI invokable from anywhere:**
+- `pip install -e .` registers `md2office` binary in the venv
+- Shell wrapper script `md2office` at project root for PATH-based invocation
+- Fixed `pyproject.toml` build backend from `setuptools.backends.legacy:build` → `setuptools.build_meta` for compatibility with older setuptools
+
+**Documentation:**
+- `docs/guide.md` fully rewritten as a coherent narrative document (removed raw chat transcript)
+- Sections added: Invoking the Tool, Text Overflow Handling, Running with Docker
+
+**Known limitations (Phase 2 scope):**
+- Draw.io flowchart → PNG → slide insertion not yet implemented
+- LLM validation pass (semantic coherence check) not yet wired
+- Batch processing CLI not yet implemented

@@ -1,0 +1,70 @@
+# md2office default formatting and validation rules
+# These values are used as defaults; override per-project via --config flag.
+
+pptx:
+  title_max_length: 80        # Maximum characters in a slide title
+  bullets_max: 6              # Maximum bullet points per slide
+  min_file_size_bytes: 50000  # Below this = likely missing backgrounds
+
+docx:
+  preserve_headers: true      # Keep template headers/footers
+  preserve_images: true       # Keep logo/brand images from template body
+  list_style: "List Bullet"   # Word style name for bullet lists
+
+xlsx:
+  max_columns: 20             # Maximum columns per sheet
+  freeze_header: true         # Freeze the first row as a header
+  header_color: "2E75B6"      # Header cell background color (hex)
+
+text_overflow:
+  enabled: true              # Auto-shrink font size when text overflows shape bounds
+  min_font_size_pt: 8        # Never shrink below this point size
+  step_pt: 2                 # Reduce by this many points per iteration
+  max_iterations: 20         # Safety cap on shrink iterations per shape
+
+validation:
+  strict: false               # If true, warnings are treated as errors
+  check_artifacts: true       # Check for residual markdown tokens
+  check_placeholders: true    # Check for unreplaced template text
+  check_file_size: true       # Run file size heuristics on PPTX
+
+# ---------------------------------------------------------------------------
+# Placeholder map: intent → {template_placeholder: replacement_key}
+#
+# These strings are the exact text found in the template shapes that get
+# replaced with user-supplied content. Override this block if your template
+# uses different placeholder text.
+# ---------------------------------------------------------------------------
+placeholder_map:
+  section_header:
+    title: "Section Name Here"
+    number: "SECTION Number"
+  video_title:
+    title: "Video Name"
+    section: "Section Name"
+    number: "Video Number"
+  bullets:
+    title: "Multi Point Slide"
+  single_point:
+    title: "SINGLE POINT SLIDE"
+    body: "This is a sample text"
+  callout:
+    body: "A key point (or issue)!"
+  stats:
+    title: "+80%"
+    body: "That\u2019s how much"
+  key_highlights:
+    title: "Key Highlights"
+    subtitle: "Enter your subhead line here"
+  next_video:
+    title: "Name of the Next Video"
+    label: "Next Video"
+  grid:
+    title: "EXCELLENCE IN THE"
+
+sanitization:
+  strip_tokens:               # Markdown tokens to remove from all text runs
+    - "***"
+    - "**"
+    - "__"
+    - "---"
