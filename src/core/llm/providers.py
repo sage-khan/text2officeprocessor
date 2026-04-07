@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from src.core.exceptions import LLMUnavailableError
@@ -17,12 +18,48 @@ from src.core.llm.base import LLMProvider
 logger = logging.getLogger(__name__)
 
 
+def _load_env_file() -> None:
+    """
+    Load key/value pairs from a local .env file into os.environ.
+
+    Existing environment variables are never overwritten.
+    """
+    candidates = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parents[3] / ".env",
+    ]
+    for env_path in candidates:
+        if not env_path.exists():
+            continue
+        try:
+            for raw in env_path.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip("'").strip('"')
+                if key and key not in os.environ:
+                    os.environ[key] = value
+        except Exception as exc:
+            logger.debug("Could not load .env from %s: %s", env_path, exc)
+
+
+_load_env_file()
+
+
 class OllamaProvider(LLMProvider):
     """Local Ollama LLM provider (default for offline use)."""
 
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "mistral") -> None:
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434",
+        model: str = "mistral",
+        timeout_seconds: int = 120,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.timeout_seconds = int(timeout_seconds)
 
     def generate(self, prompt: str) -> str:
         try:
@@ -31,7 +68,7 @@ class OllamaProvider(LLMProvider):
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json={"model": self.model, "prompt": prompt, "stream": False},
-                timeout=120,
+                timeout=self.timeout_seconds,
             )
             response.raise_for_status()
             return response.json().get("response", "")
@@ -143,12 +180,45 @@ class GroqProvider(LLMProvider):
             raise LLMUnavailableError(f"Groq unavailable: {exc}") from exc
 
 
+class VLLMProvider(LLMProvider):
+    """Local/remote vLLM provider (OpenAI-compatible API)."""
+
+    def __init__(self, base_url: str = "http://localhost:8000/v1", model: str = "mistralai/Mistral-7B-Instruct-v0.2") -> None:
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self._api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
+
+    def generate(self, prompt: str) -> str:
+        try:
+            import requests  # type: ignore
+
+            headers = {
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.2,
+            }
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=120,
+            )
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+        except Exception as exc:
+            raise LLMUnavailableError(f"vLLM unavailable: {exc}") from exc
+
+
 def build_provider(provider_name: str, config: dict[str, Any] | None = None) -> LLMProvider:
     """
     Factory function — build an LLM provider by name.
 
     Args:
-        provider_name: One of 'ollama', 'openai', 'claude', 'openrouter', 'groq'.
+        provider_name: One of 'ollama', 'vllm', 'openai', 'claude', 'openrouter', 'groq'.
         config: Optional dict with provider-specific settings (model, base_url, etc.).
 
     Returns:
@@ -160,6 +230,7 @@ def build_provider(provider_name: str, config: dict[str, Any] | None = None) -> 
     config = config or {}
     registry: dict[str, type[LLMProvider]] = {
         "ollama": OllamaProvider,
+        "vllm": VLLMProvider,
         "openai": OpenAIProvider,
         "claude": ClaudeProvider,
         "openrouter": OpenRouterProvider,

@@ -55,6 +55,38 @@ services:
     networks:
       - md2office-net
 
+  # ── vLLM (optional local/server OpenAI-compatible endpoint) ───────────────
+  # Start with:
+  #   docker compose --profile vllm up -d vllm
+  #
+  # Notes:
+  # - Default model is Llama 3.1 8B Instruct. For gated models, set HF_TOKEN.
+  # - You can override model via VLLM_MODEL in .env.
+  vllm:
+    image: vllm/vllm-openai:latest
+    profiles:
+      - vllm
+    ports:
+      - "8000:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - vllm-cache:/root/.cache/huggingface
+    command: >
+      --model ${VLLM_MODEL:-meta-llama/Llama-3.1-8B-Instruct}
+      --host 0.0.0.0
+      --port 8000
+      --dtype auto
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-8192}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/models"]
+      interval: 15s
+      timeout: 8s
+      retries: 8
+      start_period: 30s
+    networks:
+      - md2office-net
+
 networks:
   md2office-net:
     driver: bridge
@@ -62,3 +94,5 @@ networks:
 volumes:
   ollama-models:
     name: md2office-ollama-models
+  vllm-cache:
+    name: md2office-vllm-cache

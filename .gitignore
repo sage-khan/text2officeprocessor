@@ -45,6 +45,7 @@ tests/data/section-01-*.md
 # Secrets — NEVER commit these
 .env
 .env.*
+!.env.example
 secrets/
 *.key
 *.pem

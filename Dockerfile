@@ -29,7 +29,7 @@ FROM python:3.12-slim AS runtime
 
 LABEL maintainer="Muhammad Danyal (Sage) Khan"
 LABEL description="MD2Office — convert markdown/text/HTML to PPTX, DOCX, XLSX"
-LABEL version="0.2.6"
+LABEL version="0.3.0"
 
 # LibreOffice is needed only for optional PDF verification.
 # Uncomment to enable (~1.5 GB added to image size):

@@ -27,6 +27,7 @@ from src.core.engines.docx.engine import DOCXEngine
 from src.core.engines.pptx.engine import PPTXEngine
 from src.core.engines.xlsx.engine import XLSXEngine
 from src.core.exceptions import MD2OfficeError
+from src.core.llm.runtime_config import resolve_provider_selection
 from src.core.llm.providers import build_provider
 from src.core.models import OutputFormat
 from src.core.parser.preprocessor import InputPreprocessor
@@ -95,7 +96,7 @@ def convert(
         OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
     ),
     llm_provider: Optional[str] = typer.Option(
-        None, "--llm", help="LLM provider: ollama | openai | claude | openrouter | groq."
+        None, "--llm", help="LLM provider: ollama | vllm | openai | claude | openrouter | groq | none."
     ),
     llm_model: Optional[str] = typer.Option(
         None, "--llm-model", help="Model name for the LLM provider."
@@ -115,17 +116,19 @@ def convert(
     _setup_logging(log_level)
     logger = logging.getLogger("md2office.cli")
 
-    # -- Resolve LLM provider (optional)
+    # -- Resolve LLM provider (local-first; configurable)
     provider = None
-    if llm_provider:
+    resolved_llm_name, llm_config = resolve_provider_selection(llm_provider, llm_model)
+    if resolved_llm_name:
         try:
-            llm_config = {}
-            if llm_model:
-                llm_config["model"] = llm_model
-            provider = build_provider(llm_provider, llm_config)
-            logger.info("Using LLM provider: %s", llm_provider)
+            provider = build_provider(resolved_llm_name, llm_config)
+            logger.info("Using LLM provider: %s", resolved_llm_name)
         except Exception as exc:
-            logger.warning("Could not initialize LLM provider '%s': %s — proceeding without LLM.", llm_provider, exc)
+            logger.warning(
+                "Could not initialize LLM provider '%s': %s — proceeding without LLM.",
+                resolved_llm_name,
+                exc,
+            )
 
     resolved_template = _resolve_template(template, output_type)
     if resolved_template and resolved_template != template:
@@ -333,7 +336,7 @@ def batch(
         help="Glob pattern to filter input files, e.g. '*.md' or 'section-*.html'.",
     ),
     llm_provider: Optional[str] = typer.Option(
-        None, "--llm", help="LLM provider: ollama | openai | claude | openrouter | groq."
+        None, "--llm", help="LLM provider: ollama | vllm | openai | claude | openrouter | groq | none."
     ),
     llm_model: Optional[str] = typer.Option(
         None, "--llm-model", help="Model name for the LLM provider."
@@ -377,19 +380,18 @@ def batch(
         )
         raise typer.Exit(code=0)
 
-    # Resolve LLM provider once for the whole batch
+    # Resolve LLM provider once for the whole batch (local-first; configurable)
     provider = None
-    if llm_provider:
+    resolved_llm_name, llm_config = resolve_provider_selection(llm_provider, llm_model)
+    if resolved_llm_name:
         try:
-            llm_config = {}
-            if llm_model:
-                llm_config["model"] = llm_model
-            provider = build_provider(llm_provider, llm_config)
-            logger.info("Using LLM provider: %s", llm_provider)
+            provider = build_provider(resolved_llm_name, llm_config)
+            logger.info("Using LLM provider: %s", resolved_llm_name)
         except Exception as exc:
             logger.warning(
                 "Could not initialize LLM provider '%s': %s — proceeding without LLM.",
-                llm_provider, exc,
+                resolved_llm_name,
+                exc,
             )
 
     resolved_template = _resolve_template(template, output_type)
@@ -489,14 +491,13 @@ def watch(
         raise typer.Exit(code=1)
 
     provider = None
-    if llm_provider:
+    resolved_llm_name, llm_cfg = resolve_provider_selection(llm_provider, llm_model)
+    if resolved_llm_name:
         try:
-            llm_cfg: dict = {}
-            if llm_model:
-                llm_cfg["model"] = llm_model
-            provider = build_provider(llm_provider, llm_cfg)
+            provider = build_provider(resolved_llm_name, llm_cfg)
+            logger.info("Using LLM provider: %s", resolved_llm_name)
         except Exception as exc:
-            logger.warning("Could not initialize LLM provider: %s", exc)
+            logger.warning("Could not initialize LLM provider '%s': %s", resolved_llm_name, exc)
 
     resolved_template = _resolve_template(template, output_type)
     if resolved_template and resolved_template != template:

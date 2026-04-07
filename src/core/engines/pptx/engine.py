@@ -699,6 +699,12 @@ class PPTXEngine:
 
         # Apply structured items (cards, grid, etc.)
         if sdef.items:
+            # First pass: direct text replacement for templates that use literal
+            # placeholder keys (e.g. "card_1_title", "card_1_body") in TextBoxes.
+            for item_key, item_val in sdef.items.items():
+                replace_text_everywhere(new_slide, item_key, item_val)
+            # Second pass: keyword-sentinel replacement for premium templates
+            # that use "Key Element Title" / "Key Element Title Here" markers.
             apply_items(new_slide, sdef.template_index, sdef.items)
 
         # Embed diagram image (draw.io export or direct PNG/SVG)

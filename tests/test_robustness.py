@@ -201,8 +201,10 @@ def test_web_convert_no_file_returns_422():
 def test_web_index_contains_form_fields():
     resp = _client.get("/")
     html = resp.text
-    assert 'name="output_type"' in html
-    assert 'name="file"' in html
+    assert "convert-btn" in html
+    assert "drop-zone" in html
+    assert "fmt-card" in html
+    assert "llm-provider" in html
 
 
 # ---------------------------------------------------------------------------
