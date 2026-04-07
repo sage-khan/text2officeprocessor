@@ -100,6 +100,10 @@ def convert(
         None, "--llm-model", help="Model name for the LLM provider."
     ),
     validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after rendering."),
+    llm_validate: bool = typer.Option(
+        False, "--llm-validate/--no-llm-validate",
+        help="Run an LLM semantic coherence check after rendering (requires --llm).",
+    ),
     config: Optional[Path] = typer.Option(
         None, "--config", "-c",
         help="Path to a custom rules YAML file (overrides config/default_rules.yaml).",
@@ -126,13 +130,20 @@ def convert(
     if resolved_template and resolved_template != template:
         typer.echo(f"  Using bundled template: {resolved_template.name}")
 
+    llm_validator = None
+    if llm_validate and provider:
+        from src.core.validation.validator import LLMValidator
+        llm_validator = LLMValidator(provider=provider)
+    elif llm_validate and not provider:
+        typer.echo("  [WARN] --llm-validate requires --llm to be set. Skipping LLM validation.")
+
     try:
         if output_type == OutputFormat.PPTX:
-            _run_pptx(input_file, slides_md, resolved_template, output, provider, validate, config, logger)
+            _run_pptx(input_file, slides_md, resolved_template, output, provider, validate, config, logger, llm_validator)
         elif output_type == OutputFormat.DOCX:
-            _run_docx(input_file, resolved_template, output, provider, validate, config, logger)
+            _run_docx(input_file, resolved_template, output, provider, validate, config, logger, llm_validator)
         elif output_type == OutputFormat.XLSX:
-            _run_xlsx(input_file, output, provider, validate, logger)
+            _run_xlsx(input_file, output, provider, validate, logger, llm_validator)
     except MD2OfficeError as exc:
         typer.echo(f"\n[ERROR] {exc}", err=True)
         raise typer.Exit(code=1)
@@ -151,6 +162,7 @@ def _run_pptx(
     validate: bool,
     config: Optional[Path],
     logger: logging.Logger,
+    llm_validator=None,
 ) -> None:
     from src.core.llm.normalizer import LLMNormalizer
 
@@ -187,6 +199,12 @@ def _run_pptx(
         validation = validator.validate_pptx(result_path)
         validator.print_report(validation)
 
+    if llm_validator:
+        from src.core.validation.validator import LLMValidator
+        llm_result = llm_validator.validate(result_path)
+        typer.echo("  LLM semantic validation:")
+        ProgrammaticValidator().print_report(llm_result)
+
 
 def _run_docx(
     input_file: Optional[Path],
@@ -196,6 +214,7 @@ def _run_docx(
     validate: bool,
     config: Optional[Path],
     logger: logging.Logger,
+    llm_validator=None,
 ) -> None:
     if not input_file:
         typer.echo("[ERROR] --input is required for DOCX output.", err=True)
@@ -218,6 +237,11 @@ def _run_docx(
         validation = validator.validate_docx(result_path)
         validator.print_report(validation)
 
+    if llm_validator:
+        llm_result = llm_validator.validate(result_path)
+        typer.echo("  LLM semantic validation:")
+        ProgrammaticValidator().print_report(llm_result)
+
 
 def _run_xlsx(
     input_file: Optional[Path],
@@ -225,6 +249,7 @@ def _run_xlsx(
     provider,
     validate: bool,
     logger: logging.Logger,
+    llm_validator=None,
 ) -> None:
     if not input_file:
         typer.echo("[ERROR] --input is required for XLSX output.", err=True)
@@ -243,6 +268,11 @@ def _run_xlsx(
         validator = ProgrammaticValidator()
         validation = validator.validate_xlsx(result_path)
         validator.print_report(validation)
+
+    if llm_validator:
+        llm_result = llm_validator.validate(result_path)
+        typer.echo("  LLM semantic validation:")
+        ProgrammaticValidator().print_report(llm_result)
 
 
 @app.command("analyze")
@@ -308,6 +338,10 @@ def batch(
         None, "--llm-model", help="Model name for the LLM provider."
     ),
     validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after each render."),
+    llm_validate: bool = typer.Option(
+        False, "--llm-validate/--no-llm-validate",
+        help="Run an LLM semantic coherence check after each render (requires --llm).",
+    ),
     config: Optional[Path] = typer.Option(
         None, "--config", "-c",
         help="Path to a custom rules YAML file.",
@@ -361,6 +395,13 @@ def batch(
     if resolved_template and resolved_template != template:
         typer.echo(f"  Using bundled template: {resolved_template.name}")
 
+    llm_validator = None
+    if llm_validate and provider:
+        from src.core.validation.validator import LLMValidator
+        llm_validator = LLMValidator(provider=provider)
+    elif llm_validate and not provider:
+        typer.echo("  [WARN] --llm-validate requires --llm to be set. Skipping LLM validation.")
+
     ext_map = {OutputFormat.PPTX: ".pptx", OutputFormat.DOCX: ".docx", OutputFormat.XLSX: ".xlsx"}
     out_ext = ext_map[output_type]
 
@@ -375,11 +416,11 @@ def batch(
         typer.echo(f"  [{idx}/{total}] {input_file.name} → {output_file.name}")
         try:
             if output_type == OutputFormat.PPTX:
-                _run_pptx(input_file, None, resolved_template, output_file, provider, validate, config, logger)
+                _run_pptx(input_file, None, resolved_template, output_file, provider, validate, config, logger, llm_validator)
             elif output_type == OutputFormat.DOCX:
-                _run_docx(input_file, resolved_template, output_file, provider, validate, config, logger)
+                _run_docx(input_file, resolved_template, output_file, provider, validate, config, logger, llm_validator)
             elif output_type == OutputFormat.XLSX:
-                _run_xlsx(input_file, output_file, provider, validate, logger)
+                _run_xlsx(input_file, output_file, provider, validate, logger, llm_validator)
             succeeded.append(output_file)
         except Exception as exc:
             msg = str(exc)

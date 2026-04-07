@@ -146,6 +146,20 @@ md2office drawio-export diagrams/architecture.drawio --output outputs/architectu
 md2office drawio-export diagrams/multi-page.drawio --all-pages
 ```
 
+### LLM semantic validation
+
+After rendering, ask an LLM to check the output for truncated text, unreplaced placeholders, content mismatches, and empty sections:
+
+```bash
+md2office convert \
+  --slides-md slides.md \
+  --output output.pptx \
+  --llm ollama --llm-model mistral \
+  --llm-validate
+```
+
+The check is non-blocking — if the LLM is unavailable the document is still saved.
+
 ### Analyze a template before authoring
 
 ```bash
@@ -445,7 +459,7 @@ docker compose run --rm md2office convert \
 python -m pytest tests/ -v
 ```
 
-Expected: **60 tests pass**.
+Expected: **71 tests pass**.
 
 ---
 

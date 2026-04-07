@@ -233,6 +233,47 @@ If `drawio` is unavailable at render time, the slide is rendered normally with o
 
 ---
 
+## LLM Semantic Validation
+
+After any render, you can run an optional LLM-powered coherence check on the output. This is in addition to the always-on programmatic checks.
+
+```bash
+md2office convert \
+  --slides-md slides.md \
+  --output output.pptx \
+  --llm ollama --llm-model mistral \
+  --llm-validate
+```
+
+### What the LLM checks
+
+| Issue type | Description |
+|---|---|
+| `TRUNCATED` | Text run appears cut off mid-sentence or mid-word |
+| `GARBLED` | Incoherent or scrambled text |
+| `PLACEHOLDER_LEAK` | Unreplaced template text still visible |
+| `MISMATCH` | Slide/section content does not match its heading |
+| `EMPTY_SECTION` | Slide or section has a title but no body |
+
+### Behaviour
+
+- Requires `--llm` to be configured. Without `--llm`, the flag is silently ignored (with a `[WARN]` note).
+- Content is truncated to 8 000 characters before being sent to the LLM.
+- All failures (provider unavailable, malformed response, parse error) return an empty result — the document is **always saved**.
+- Works with all providers: `ollama`, `openai`, `claude`, `openrouter`, `groq`.
+- Also available on `md2office batch --llm-validate`.
+
+### Example output
+
+```
+  Validation: PASSED (no issues)
+  LLM semantic validation:
+  Validation: PASSED with 1 issue(s)
+    [WARNING] Slide 4 / title: [PLACEHOLDER_LEAK] "Section Name Here" still present
+```
+
+---
+
 ## Batch Converting a Directory
 
 Convert every markdown, text, or HTML file in a folder in one command. Output files are named after their source file, with the output extension appended:

@@ -165,6 +165,29 @@ All changes are recorded here with timestamps. Append-only.
 - 9 new draw.io tests: missing file, CLI unavailable, non-zero exit, success mock, page count, planner parsing, engine embedding
 - Total test count: **60 passed**
 
-**Known limitations (Phase 2 scope):**
-- LLM validation pass (semantic coherence check) not yet wired
+---
+
+## [0.2.4] — 2026-04-07
+
+### Added
+
+**LLM semantic validation pass (`src/core/validation/validator.py`):**
+- `LLMValidator` class — optional post-render semantic coherence check via any configured LLM provider
+- Extracts full text from `.pptx` (slide-by-slide), `.docx` (paragraphs), `.xlsx` (cells) and sends to LLM
+- Prompt instructs the model to return a JSON array of issues with `severity`, `location`, `issue_type`, `message` fields
+- Five issue types: `TRUNCATED`, `GARBLED`, `PLACEHOLDER_LEAK`, `MISMATCH`, `EMPTY_SECTION`
+- `_parse_llm_response()` — tolerates markdown fences, trailing prose, embedded arrays, malformed JSON (never raises)
+- Content truncated to 8 000 chars before sending to avoid context window overflow
+- All failures (LLM unavailable, malformed response, extraction error) return an empty `ValidationResult` — never blocks the pipeline
+
+**CLI `--llm-validate` flag:**
+- Available on both `convert` and `batch` commands
+- Requires `--llm` to be set; prints a `[WARN]` and skips silently if no provider is configured
+- LLM validation report printed alongside the programmatic validation report
+
+**Tests:**
+- 11 new LLM validator tests: JSON parsing (clean, fenced, embedded, malformed), provider mocked validate (no issues, with issues, LLM failure, unsupported format, missing file), CLI warn-on-no-provider
+- Total test count: **71 passed**
+
+**Known limitations:**
 - No web UI
