@@ -19,8 +19,9 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from src.core.config_loader import get, load_config
 from src.core.models import ValidationIssue, ValidationResult
 
 if TYPE_CHECKING:
@@ -28,8 +29,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MARKDOWN_ARTIFACTS = ["***", "**", "__"]
-KNOWN_TEMPLATE_PLACEHOLDERS = [
+# ---------------------------------------------------------------------------
+# Built-in fallback defaults (used when config key is absent or config is empty)
+# ---------------------------------------------------------------------------
+_DEFAULT_MARKDOWN_ARTIFACTS = ["***", "**", "__"]
+_DEFAULT_KNOWN_PLACEHOLDERS = [
     "Section Name Here",
     "SECTION Number",
     "Video Name",
@@ -43,14 +47,60 @@ KNOWN_TEMPLATE_PLACEHOLDERS = [
     "+80%",
     "That\u2019s how much",
 ]
+_DEFAULT_PPTX_MIN_SIZE_BYTES = 50_000
+_DEFAULT_MAX_CONTENT_CHARS = 8_000
 
-PPTX_MIN_SIZE_BYTES = 50_000
+_DEFAULT_LLM_PROMPT = """\
+You are a quality-control assistant for office document generation.
+
+You will receive the extracted text content of a rendered document (PPTX, DOCX, or XLSX).
+Analyse the content and identify any of the following problems:
+
+1. TRUNCATED — A text run appears cut off mid-sentence or mid-word.
+2. GARBLED — A text run contains incoherent, scrambled, or clearly wrong text.
+3. PLACEHOLDER_LEAK — An unreplaced template placeholder is still visible (e.g. "Section Name Here", "Video Name").
+4. MISMATCH — The content of a section/slide does not match its heading or title.
+5. EMPTY_SECTION — A slide or section has a title but no body content at all.
+
+Respond ONLY with a JSON array. Each element must have:
+  - "severity": "warning" or "error"
+  - "location": a short description of where the issue is (e.g. "Slide 3 / title", "Section: Introduction")
+  - "issue_type": one of TRUNCATED | GARBLED | PLACEHOLDER_LEAK | MISMATCH | EMPTY_SECTION
+  - "message": a brief, factual description of the problem
+
+If there are no problems, respond with an empty array: []
+
+Document content:
+---
+{content}
+---
+"""
 
 
 class ProgrammaticValidator:
     """
     Runs programmatic post-render checks on generated files.
+
+    Args:
+        config_path: Optional path to a custom rules YAML. When ``None``,
+                     the default config is located automatically.
     """
+
+    def __init__(self, config_path: Path | str | None = None) -> None:
+        self._cfg = load_config(config_path)
+        vcfg = self._cfg.get("validation", {})
+        self.markdown_artifacts: list[str] = vcfg.get(
+            "markdown_artifacts", _DEFAULT_MARKDOWN_ARTIFACTS
+        )
+        self.known_placeholders: list[str] = vcfg.get(
+            "known_placeholders", _DEFAULT_KNOWN_PLACEHOLDERS
+        )
+        self.pptx_min_size_bytes: int = vcfg.get(
+            "pptx_min_size_bytes", _DEFAULT_PPTX_MIN_SIZE_BYTES
+        )
+        self.check_artifacts: bool = vcfg.get("check_artifacts", True)
+        self.check_placeholders: bool = vcfg.get("check_placeholders", True)
+        self.check_file_size: bool = vcfg.get("check_file_size", True)
 
     def validate_pptx(self, output_path: Path) -> ValidationResult:
         """
@@ -75,11 +125,11 @@ class ProgrammaticValidator:
 
         # File size check
         file_size = output_path.stat().st_size
-        if file_size < PPTX_MIN_SIZE_BYTES:
+        if self.check_file_size and file_size < self.pptx_min_size_bytes:
             result.add_issue(
                 "warning",
                 str(output_path),
-                f"File size {file_size} bytes is below {PPTX_MIN_SIZE_BYTES} — "
+                f"File size {file_size} bytes is below {self.pptx_min_size_bytes} — "
                 "backgrounds may be missing (check slide cloning).",
             )
         else:
@@ -98,22 +148,24 @@ class ProgrammaticValidator:
                             text = run.text
 
                             # Check for residual markdown artifacts
-                            for artifact in MARKDOWN_ARTIFACTS:
-                                if artifact in text:
-                                    result.add_issue(
-                                        "warning",
-                                        f"Slide {slide_idx} / shape '{shape.name}'",
-                                        f"Markdown artifact '{artifact}' found in: '{text[:60]}'",
-                                    )
+                            if self.check_artifacts:
+                                for artifact in self.markdown_artifacts:
+                                    if artifact in text:
+                                        result.add_issue(
+                                            "warning",
+                                            f"Slide {slide_idx} / shape '{shape.name}'",
+                                            f"Markdown artifact '{artifact}' found in: '{text[:60]}'",
+                                        )
 
                             # Check for unreplaced template placeholders
-                            for placeholder in KNOWN_TEMPLATE_PLACEHOLDERS:
-                                if placeholder in text:
-                                    result.add_issue(
-                                        "warning",
-                                        f"Slide {slide_idx} / shape '{shape.name}'",
-                                        f"Template placeholder not replaced: '{placeholder}'",
-                                    )
+                            if self.check_placeholders:
+                                for placeholder in self.known_placeholders:
+                                    if placeholder in text:
+                                        result.add_issue(
+                                            "warning",
+                                            f"Slide {slide_idx} / shape '{shape.name}'",
+                                            f"Template placeholder not replaced: '{placeholder}'",
+                                        )
 
         except Exception as exc:
             result.add_issue("error", str(output_path), f"Could not open PPTX for validation: {exc}")
@@ -156,7 +208,7 @@ class ProgrammaticValidator:
             # Check runs for artifacts
             for para_idx, para in enumerate(doc.paragraphs):
                 for run in para.runs:
-                    for artifact in MARKDOWN_ARTIFACTS:
+                    for artifact in (self.markdown_artifacts if self.check_artifacts else []):
                         if artifact in run.text:
                             result.add_issue(
                                 "warning",
@@ -213,36 +265,8 @@ class ProgrammaticValidator:
 
 
 # ---------------------------------------------------------------------------
-# LLM Semantic Validator
+# LLM Semantic Validator helpers
 # ---------------------------------------------------------------------------
-
-_LLM_VALIDATION_PROMPT = """\
-You are a quality-control assistant for office document generation.
-
-You will receive the extracted text content of a rendered document (PPTX, DOCX, or XLSX).
-Analyse the content and identify any of the following problems:
-
-1. TRUNCATED — A text run appears cut off mid-sentence or mid-word.
-2. GARBLED — A text run contains incoherent, scrambled, or clearly wrong text.
-3. PLACEHOLDER_LEAK — An unreplaced template placeholder is still visible (e.g. "Section Name Here", "Video Name").
-4. MISMATCH — The content of a section/slide does not match its heading or title.
-5. EMPTY_SECTION — A slide or section has a title but no body content at all.
-
-Respond ONLY with a JSON array. Each element must have:
-  - "severity": "warning" or "error"
-  - "location": a short description of where the issue is (e.g. "Slide 3 / title", "Section: Introduction")
-  - "issue_type": one of TRUNCATED | GARBLED | PLACEHOLDER_LEAK | MISMATCH | EMPTY_SECTION
-  - "message": a brief, factual description of the problem
-
-If there are no problems, respond with an empty array: []
-
-Document content:
----
-{content}
----
-"""
-
-_MAX_CONTENT_CHARS = 8000
 
 
 def _extract_pptx_text(path: Path) -> str:
@@ -315,10 +339,28 @@ class LLMValidator:
 
     Falls back to a no-op (returns empty ValidationResult) if the provider
     is unavailable or the LLM call fails, so it never blocks the pipeline.
+
+    Args:
+        provider: An LLMProvider instance.
+        config_path: Optional path to a custom rules YAML.  When ``None``, the
+                     default config is used.  The ``llm_validation`` block in
+                     the config controls the prompt template and content limit.
     """
 
-    def __init__(self, provider: "LLMProvider") -> None:
+    def __init__(
+        self,
+        provider: "LLMProvider",
+        config_path: Path | str | None = None,
+    ) -> None:
         self._provider = provider
+        cfg = load_config(config_path)
+        llm_cfg = cfg.get("llm_validation", {})
+        self._max_content_chars: int = int(
+            llm_cfg.get("max_content_chars", _DEFAULT_MAX_CONTENT_CHARS)
+        )
+        self._prompt_template: str = str(
+            llm_cfg.get("prompt", _DEFAULT_LLM_PROMPT)
+        ).strip()
 
     def validate(self, output_path: Path) -> ValidationResult:
         """
@@ -352,15 +394,15 @@ class LLMValidator:
             logger.info("LLMValidator: no text content found in %s — skipping.", output_path.name)
             return result
 
-        # Truncate to avoid overwhelming the LLM context window
-        truncated = content[:_MAX_CONTENT_CHARS]
-        if len(content) > _MAX_CONTENT_CHARS:
+        max_chars = self._max_content_chars
+        truncated = content[:max_chars]
+        if len(content) > max_chars:
             logger.info(
                 "LLMValidator: content truncated from %d to %d chars for prompt.",
-                len(content), _MAX_CONTENT_CHARS,
+                len(content), max_chars,
             )
 
-        prompt = _LLM_VALIDATION_PROMPT.format(content=truncated)
+        prompt = self._prompt_template.format(content=truncated)
 
         try:
             logger.info("LLMValidator: calling provider for semantic check on %s", output_path.name)

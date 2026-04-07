@@ -238,3 +238,41 @@ All changes are recorded here with timestamps. Append-only.
 **Tests:**
 - 10 new web tests: health, HTML UI, md/txt/html to xlsx, md to pptx/docx bundled, unsupported input/output (422), filename stem preserved
 - Total test count: **86 passed**
+
+---
+
+## [0.2.7] — 2026-04-07
+
+### Added
+
+**Centralised config loader (`src/core/config_loader.py`):**
+- `load_config(path?)` — resolves config in order: explicit path → `config/default_rules.yaml` → bundled `src/data/config/default_rules.yaml`
+- `get(cfg, *keys, default=None)` — safe nested dict accessor with fallback
+- Results cached with `lru_cache` to avoid repeated disk reads
+- Graceful error handling: missing or malformed YAML returns `{}` with a warning log
+
+**Config-driven validation (`config/default_rules.yaml`, `src/data/config/default_rules.yaml`):**
+- New `validation.markdown_artifacts` list — replaces hardcoded `MARKDOWN_ARTIFACTS`
+- New `validation.known_placeholders` list — replaces hardcoded `KNOWN_TEMPLATE_PLACEHOLDERS`
+- New `validation.pptx_min_size_bytes` key — replaces hardcoded `PPTX_MIN_SIZE_BYTES`
+- New `validation.check_artifacts`, `check_placeholders`, `check_file_size` flags
+- New `llm_validation.max_content_chars` key — replaces hardcoded `_MAX_CONTENT_CHARS = 8000`
+- New `llm_validation.prompt` key — full prompt template in config, overridable per project
+- `ProgrammaticValidator(config_path=None)` — reads all check settings from config; built-in lists remain as fallback defaults
+- `LLMValidator(provider, config_path=None)` — reads prompt template and char limit from config
+
+**`requirements.txt` overhaul:**
+- Fully annotated with section comments
+- Added: `fastapi`, `uvicorn[standard]`, `python-multipart`, `httpx` (previously missing)
+- All optional sections labelled clearly (web, LLM providers, dev)
+
+**`Dockerfile` fixes:**
+- Version label bumped to `0.2.6`
+- Builder stage installs web extras (`fastapi`, `uvicorn`, `python-multipart`, `httpx`) before `requirements.txt`
+- `EXPOSE 8000` added for web UI
+- `HEALTHCHECK` added: polls `GET /health` every 30s
+
+**Tests — 37 new across two new test files:**
+- `tests/test_config_loader.py` (17 tests): load default/explicit/missing/empty/malformed config; `get` helper; validator reads custom artifacts, placeholders, flags, min-size; LLMValidator reads custom max-chars, prompt, falls back to defaults
+- `tests/test_robustness.py` (20 tests): CLI edge cases (missing input, xlsx no template, pptx bundled template, custom config, html input, analyze non-existent); validator xlsx/docx/missing-file smoke; web health JSON, empty file, large file, unknown output 422, no-file 422, form fields; batch output-dir creation, fail-fast; LLMValidator truncation from config
+- Total test count: **123 passed**

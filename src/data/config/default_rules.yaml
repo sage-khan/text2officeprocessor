@@ -68,3 +68,58 @@ sanitization:
     - "**"
     - "__"
     - "---"
+
+validation:
+  strict: false               # If true, warnings are treated as errors
+  check_artifacts: true       # Check for residual markdown tokens
+  check_placeholders: true    # Check for unreplaced template text
+  check_file_size: true       # Run file size heuristics on PPTX
+  pptx_min_size_bytes: 50000  # Below this = likely missing slide backgrounds
+
+  # Markdown artifact tokens that should NOT appear in final output
+  markdown_artifacts:
+    - "***"
+    - "**"
+    - "__"
+
+  # Exact strings that indicate an unreplaced template placeholder
+  known_placeholders:
+    - "Section Name Here"
+    - "SECTION Number"
+    - "Video Name"
+    - "Video Number"
+    - "Multi Point Slide"
+    - "SINGLE POINT SLIDE"
+    - "Key Highlights"
+    - "Key Element Title"
+    - "Name of the Next Video"
+    - "A key point (or issue)!"
+    - "+80%"
+    - "That\u2019s how much"
+
+llm_validation:
+  max_content_chars: 8000   # Truncate document text to this length before sending to LLM
+  prompt: |
+    You are a quality-control assistant for office document generation.
+
+    You will receive the extracted text content of a rendered document (PPTX, DOCX, or XLSX).
+    Analyse the content and identify any of the following problems:
+
+    1. TRUNCATED — A text run appears cut off mid-sentence or mid-word.
+    2. GARBLED — A text run contains incoherent, scrambled, or clearly wrong text.
+    3. PLACEHOLDER_LEAK — An unreplaced template placeholder is still visible (e.g. "Section Name Here", "Video Name").
+    4. MISMATCH — The content of a section/slide does not match its heading or title.
+    5. EMPTY_SECTION — A slide or section has a title but no body content at all.
+
+    Respond ONLY with a JSON array. Each element must have:
+      - "severity": "warning" or "error"
+      - "location": a short description of where the issue is (e.g. "Slide 3 / title", "Section: Introduction")
+      - "issue_type": one of TRUNCATED | GARBLED | PLACEHOLDER_LEAK | MISMATCH | EMPTY_SECTION
+      - "message": a brief, factual description of the problem
+
+    If there are no problems, respond with an empty array: []
+
+    Document content:
+    ---
+    {content}
+    ---

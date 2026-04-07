@@ -195,6 +195,16 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) — drag-and-drop a `.md`, `
 md2office serve --host 0.0.0.0 --port 8080
 ```
 
+### Custom validation config
+
+Override the built-in placeholder list, artifact tokens, LLM prompt, and more by pointing to your own YAML:
+
+```bash
+md2office convert --input doc.md --output out.xlsx --type xlsx --config my-rules.yaml
+```
+
+See `config/default_rules.yaml` for all available keys (`validation.known_placeholders`, `llm_validation.prompt`, etc.).
+
 ### Analyze a template before authoring
 
 ```bash
@@ -494,7 +504,7 @@ docker compose run --rm md2office convert \
 python -m pytest tests/ -v
 ```
 
-Expected: **86 tests pass**.
+Expected: **123 tests pass**.
 
 ---
 
