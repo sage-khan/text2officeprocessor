@@ -31,11 +31,14 @@ MD2Office takes your content in plain text formats and converts it into professi
 ### Install
 
 ```bash
-git clone https://github.com/sage-khan/md2office
-cd md2office
+git clone https://github.com/sage-khan/text2officeprocessor
+cd text2officeprocessor
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .          # registers the md2office command in your PATH
 ```
+
+After `pip install -e .` the `md2office` command is available in the activated venv. Add the project to your `PATH` (see [docs/guide.md](docs/guide.md#invoking-the-tool)) to use it from any directory without activating the venv.
 
 ### Generate a PPTX from pre-authored slides markdown
 
@@ -100,25 +103,26 @@ The primary PPTX workflow uses a structured markdown format:
 
 ```markdown
 ## SLIDE 1 — template_index: 0 (Section Header)
-- placeholder: "Section Name Here" → "Introduction to AI Auditing"
+- placeholder: "Section Name Here" → "Getting Started"
 - placeholder: "SECTION Number" → "SECTION 1"
 
 ---
 
 ## SLIDE 2 — template_index: 3 (Multi Point)
-- placeholder: "Multi Point Slide" → "Why It Matters"
+- placeholder: "Multi Point Slide" → "Key Points"
 - bullets:
-  - "COMPAS: 45% false positive rate for Black defendants vs 23% for white"
-  - "EU AI Act: up to 35M euros or 7% global revenue for non-compliance"
+  - "First key point goes here"
+  - "Second key point goes here"
+  - "Third key point goes here"
 
 ---
 
 ## SLIDE 3 — template_index: 7 (Key Highlights — 4 columns)
 - placeholder: "Key Highlights" → "What You Will Learn"
-- card_1_title: "Foundations"
-- card_1_body: "ML fundamentals and auditing frameworks"
-- card_2_title: "Legal & Compliance"
-- card_2_body: "GDPR, EU AI Act, NIST AI RMF"
+- card_1_title: "Topic One"
+- card_1_body: "Short description of topic one"
+- card_2_title: "Topic Two"
+- card_2_body: "Short description of topic two"
 ```
 
 See [docs/guide.md](docs/guide.md) for the full format specification.
@@ -167,8 +171,213 @@ LLM is entirely optional — the tool works fully offline with rule-based normal
 | Groq | `--llm groq` | `GROQ_API_KEY` |
 
 ```bash
-python -m src.cli.main convert --input content.md --template t.pptx \
+md2office convert --input content.md --template t.pptx \
   --output out.pptx --type pptx --llm ollama --llm-model mistral
+```
+
+---
+
+## Tutorial: Converting Your First File
+
+This section walks through the complete workflow for each output format — from zero to a finished document.
+
+### Step 1 — Analyse your template
+
+Before writing any content, run `analyze` on your template to discover the exact placeholder text strings in every shape. These are the strings you will reference in your slides markdown:
+
+```bash
+md2office analyze my-template.pptx
+```
+
+Sample output:
+
+```
+Template: my-template.pptx
+Total slides: 13
+
+=== SLIDE 0 (layout: Section Header) ===
+  Shape 1 "Title" para[0] run[0]: 'Section Name Here'
+  Shape 2 "Subtitle" para[0] run[0]: 'SECTION Number'
+
+=== SLIDE 3 (layout: Multi Point) ===
+  Shape 1 "Title" para[0] run[0]: 'Multi Point Slide'
+```
+
+The string in quotes (`'Section Name Here'`, `'Multi Point Slide'`, etc.) is what you put as the `"old"` value in a `placeholder:` line.
+
+---
+
+### Step 2 — Create your slides markdown
+
+Create a file called `slides.md`. Each slide block starts with a header that names the template slide to clone and what content to inject:
+
+```markdown
+## SLIDE 1 — template_index: 0 (Section Header)
+- placeholder: "Section Name Here" → "Project Overview"
+- placeholder: "SECTION Number" → "SECTION 1"
+
+---
+
+## SLIDE 2 — template_index: 3 (Multi Point)
+- placeholder: "Multi Point Slide" → "Goals for This Quarter"
+- bullets:
+  - "Reduce onboarding time by 30%"
+  - "Launch the self-service portal"
+  - "Complete security audit"
+
+---
+
+## SLIDE 3 — template_index: 7 (Key Highlights — 4 columns)
+- placeholder: "Key Highlights" → "Four Pillars"
+- placeholder: "Enter your subhead line here" → "Our strategic focus areas"
+- card_1_title: "Speed"
+- card_1_body: "Faster delivery cycles"
+- card_2_title: "Quality"
+- card_2_body: "Zero-defect release policy"
+- card_3_title: "Scale"
+- card_3_body: "Infrastructure for 10x growth"
+- card_4_title: "People"
+- card_4_body: "Invest in the team first"
+
+---
+
+## SLIDE 4 — template_index: 11 (Excellence Grid)
+- placeholder: "EXCELLENCE IN THE" → "Why We Win"
+- item_01_title: "Customer Focus"
+- item_01_body: "Every decision starts with the customer."
+- item_02_title: "Execution"
+- item_02_body: "We ship and iterate fast."
+- item_03_title: "Ownership"
+- item_03_body: "Everyone is accountable."
+```
+
+**Key rules:**
+- `template_index` is the zero-based slide number in your template (from `analyze` output)
+- `placeholder: "old" → "new"` replaces exact text; `old` must match the template character for character
+- Separate slides with `---`
+- See [docs/guide.md](docs/guide.md) for all supported slide types and item keys
+
+---
+
+### Step 3 — Generate the PPTX
+
+```bash
+md2office convert \
+  --slides-md slides.md \
+  --template  my-template.pptx \
+  --output    outputs/presentation.pptx \
+  --type pptx
+```
+
+The tool prints a summary and runs the validator automatically:
+
+```
+  Slides to render: 4
+  Output written: outputs/presentation.pptx
+  Validation: PASSED (0 errors, 0 warnings)
+```
+
+---
+
+### Tutorial: Converting Markdown to DOCX
+
+Point to any `.md` or `.txt` file and a `.docx` template. The full pipeline parses the markdown structure and injects it into the template body:
+
+```bash
+md2office convert \
+  --input    report.md \
+  --template my-template.docx \
+  --output   outputs/report.docx \
+  --type docx
+```
+
+The DOCX engine preserves all template headers, footers, logos, and styles. Only the body content is replaced.
+
+---
+
+### Tutorial: Exporting Markdown Tables to XLSX
+
+Any markdown file containing tables is automatically mapped to sheets. No template needed:
+
+**Input `data.md`:**
+
+```markdown
+# Q1 Sales Report
+
+## Regional Breakdown
+
+| Region | Revenue | Growth |
+|--------|---------|--------|
+| North  | 142,000 | +12%   |
+| South  | 98,500  | +4%    |
+| East   | 203,000 | +21%   |
+```
+
+**Command:**
+
+```bash
+md2office convert \
+  --input  data.md \
+  --output outputs/q1-report.xlsx \
+  --type   xlsx
+```
+
+Each `##` section becomes a sheet. Tables become rows. Bullet lists become single-column rows.
+
+---
+
+### Tutorial: Using a Custom Config for a Different Template
+
+If you have a template with different placeholder text than the defaults, create a `my-rules.yaml` that overrides just the `placeholder_map`:
+
+```yaml
+placeholder_map:
+  section_header:
+    title: "CLICK TO EDIT TITLE"
+    number: "00"
+  bullets:
+    title: "SLIDE TITLE"
+  key_highlights:
+    title: "HIGHLIGHTS"
+    subtitle: "subtitle text"
+```
+
+Then pass it with `--config`:
+
+```bash
+md2office convert \
+  --slides-md slides.md \
+  --template  corporate-template.pptx \
+  --output    output.pptx \
+  --config    my-rules.yaml
+```
+
+The tool reads the overrides at runtime. No Python changes needed.
+
+---
+
+### Tutorial: Running via Docker (no Python required)
+
+Mount your working directory to `/data` and pass all paths relative to that mount:
+
+```bash
+docker run --rm \
+  -v $(pwd):/data \
+  md2office convert \
+  --slides-md /data/slides.md \
+  --template  /data/my-template.pptx \
+  --output    /data/output.pptx \
+  --type pptx
+```
+
+For LLM-assisted conversion using a local Ollama model:
+
+```bash
+docker compose run --rm md2office convert \
+  --input   /data/content.md \
+  --template /data/template.pptx \
+  --output  /data/output.pptx \
+  --type pptx --llm ollama --llm-model mistral
 ```
 
 ---
