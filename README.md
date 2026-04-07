@@ -180,6 +180,21 @@ md2office convert \
 
 The check is non-blocking — if the LLM is unavailable the document is still saved.
 
+### Web UI
+
+Install the web extras and launch the browser interface:
+
+```bash
+pip install md2office[web]
+md2office serve
+```
+
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000) — drag-and-drop a `.md`, `.txt`, or `.html` file, choose an output format, and download the result.
+
+```bash
+md2office serve --host 0.0.0.0 --port 8080
+```
+
 ### Analyze a template before authoring
 
 ```bash
@@ -479,7 +494,7 @@ docker compose run --rm md2office convert \
 python -m pytest tests/ -v
 ```
 
-Expected: **76 tests pass**.
+Expected: **86 tests pass**.
 
 ---
 

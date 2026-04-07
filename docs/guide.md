@@ -233,6 +233,49 @@ If `drawio` is unavailable at render time, the slide is rendered normally with o
 
 ---
 
+## Web UI
+
+The web interface lets you convert files in the browser without using the CLI.
+
+### Install and start
+
+```bash
+pip install md2office[web]
+md2office serve
+```
+
+Navigate to [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
+```bash
+md2office serve --host 0.0.0.0 --port 8080 --reload
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Single-page HTML UI |
+| `GET` | `/health` | JSON health check: `{"status": "ok"}` |
+| `POST` | `/convert` | Convert an uploaded file; returns the output as a download |
+
+### `/convert` parameters (multipart form)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file` | file | required | Input `.md`, `.txt`, `.html`, `.htm` |
+| `output_type` | string | `pptx` | `pptx`, `docx`, or `xlsx` |
+| `llm_provider` | string | empty | `ollama`, `openai`, `claude`, `groq`, `openrouter` |
+| `llm_model` | string | empty | Model name (provider default if blank) |
+
+### Behaviour
+
+- Bundled generic templates are used automatically for PPTX/DOCX
+- Temporary files are deleted from disk after the download response is sent
+- All errors return JSON `{"detail": "..."}` with an appropriate HTTP status code
+- The web server is optional — if `fastapi`/`uvicorn` are not installed, `md2office serve` prints an installation hint and exits cleanly
+
+---
+
 ## LLM Semantic Validation
 
 After any render, you can run an optional LLM-powered coherence check on the output. This is in addition to the always-on programmatic checks.

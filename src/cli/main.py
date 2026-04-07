@@ -11,6 +11,7 @@ Usage:
     md2office batch --input-dir ./content/ --output-dir ./outputs/ --type pptx --template template.pptx
     md2office batch --input-dir ./content/ --output-dir ./outputs/ --type xlsx
     md2office drawio-export diagram.drawio --output diagram.png
+    md2office serve [--host 0.0.0.0] [--port 8000]
 """
 
 from __future__ import annotations
@@ -640,6 +641,36 @@ def list_templates() -> None:
 
     if not found_any:
         typer.echo("  No bundled templates found. Run: python scripts/create_bundled_templates.py")
+
+
+@app.command("serve")
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (default: 127.0.0.1)."),
+    port: int = typer.Option(8000, "--port", "-p", help="Bind port (default: 8000)."),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload (development only)."),
+    log_level: str = typer.Option("info", "--log-level", help="Uvicorn log level."),
+) -> None:
+    """Start the MD2Office web UI server."""
+    try:
+        import uvicorn
+    except ImportError:
+        typer.echo(
+            "[ERROR] Web UI requires extra dependencies. Install with:\n"
+            "  pip install md2office[web]\n"
+            "or: pip install fastapi 'uvicorn[standard]' python-multipart",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\nMD2Office Web UI — http://{host}:{port}\nPress Ctrl+C to stop.\n")
+    uvicorn.run(
+        "src.web.app:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        reload=reload,
+        log_level=log_level.lower(),
+    )
 
 
 def main() -> None:

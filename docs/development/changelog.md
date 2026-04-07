@@ -212,5 +212,29 @@ All changes are recorded here with timestamps. Append-only.
 - 5 new watch tests: missing input exits non-zero, output created on startup, "Watching" message, PPTX bundled template, debounce collapses rapid events
 - Total test count: **76 passed**
 
-**Known limitations:**
-- No web UI
+---
+
+## [0.2.6] — 2026-04-07
+
+### Added
+
+**Web UI (`src/web/app.py`, `md2office serve`):**
+- Browser interface at `GET /` — drag-and-drop or click-to-browse, output format selector, LLM provider/model fields, download link
+- `GET /health` — JSON health check
+- `POST /convert` — multipart upload, returns the converted file as an attachment
+- Bundled templates auto-selected for PPTX/DOCX; temporary files cleaned up via BackgroundTask
+- Input/output validation: unsupported types return HTTP 422
+- FastAPI optional extra: `pip install md2office[web]`
+
+**`md2office serve` CLI command:**
+- `--host`, `--port`, `--reload`, `--log-level` options
+- Prints `MD2Office Web UI — http://host:port` on startup
+- Clean ImportError message if `fastapi`/`uvicorn` not installed
+
+**Dependencies:**
+- `web` optional extra: `fastapi>=0.110.0`, `uvicorn[standard]>=0.29.0`, `python-multipart>=0.0.9`
+- `httpx>=0.27.0` added to `dev` extras (required by FastAPI TestClient)
+
+**Tests:**
+- 10 new web tests: health, HTML UI, md/txt/html to xlsx, md to pptx/docx bundled, unsupported input/output (422), filename stem preserved
+- Total test count: **86 passed**
