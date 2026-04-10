@@ -28,7 +28,7 @@ RUN pip install --upgrade pip \
 FROM python:3.12-slim AS runtime
 
 LABEL maintainer="Muhammad Danyal (Sage) Khan"
-LABEL description="MD2Office — convert markdown/text/HTML to PPTX, DOCX, XLSX"
+LABEL description="Text2OfficeProcessor — convert markdown/text/HTML to PPTX, DOCX, XLSX"
 LABEL version="0.3.0"
 
 # LibreOffice is needed only for optional PDF verification.
@@ -61,7 +61,7 @@ RUN useradd --no-create-home --shell /bin/false appuser \
     && chown -R appuser /app /data
 USER appuser
 
-# Expose web UI port (used when running: md2office serve --host 0.0.0.0)
+# Expose web UI port (used when running: text2officeprocessor serve --host 0.0.0.0)
 EXPOSE 8000
 
 # Health check for the web UI endpoint

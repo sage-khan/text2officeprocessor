@@ -1,7 +1,7 @@
 """
 DOCX Engine — Template Body Injection method.
 
-Implements the proven template injection approach from md2office-rules.md.
+Implements the proven template injection approach from text2officeprocessor-rules.md.
 Key guarantees:
 - EC-Council logo / header images are preserved (not cleared)
 - Tables stay inline with surrounding paragraphs (IN-ORDER iteration)

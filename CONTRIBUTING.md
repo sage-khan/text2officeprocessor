@@ -1,4 +1,4 @@
-# Contributing to MD2Office
+# Contributing to Text2OfficeProcessor
 
 Thank you for your interest in contributing. This document explains how to set up your environment and the standards expected.
 
@@ -7,8 +7,8 @@ Thank you for your interest in contributing. This document explains how to set u
 ## Getting Started
 
 ```bash
-git clone https://github.com/sage-khan/md2office
-cd md2office
+git clone https://github.com/sage-khan/text2officeprocessor
+cd text2officeprocessor
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pip install pytest pytest-cov ruff
@@ -60,7 +60,7 @@ Any PR that violates these will be rejected:
 4. **No layout mutation** — never move, resize, or rebuild shapes
 5. **No markdown artifacts** — all `**`, `__`, `---` must be stripped before saving
 
-See `.windsurf/rules/md2office-rules.md` for the full technical specification.
+See `./docs/initial-idea/text2officeprocessor-rule.md` for the full technical specification.
 
 ---
 

@@ -1,17 +1,17 @@
 """
-MD2Office CLI — entry point for the md2office command-line tool.
+Text2OfficeProcessor CLI — entry point for the text2officeprocessor command-line tool.
 
 Usage:
-    md2office convert --input input.md --template template.pptx --output output.pptx --type pptx
-    md2office convert --input input.md --template template.docx --output output.docx --type docx
-    md2office convert --input input.md --output output.xlsx --type xlsx
-    md2office convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
-    md2office convert --slides-md slides.md --template template.pptx --output out.pptx --config my-rules.yaml
-    md2office analyze template.pptx
-    md2office batch --input-dir ./content/ --output-dir ./outputs/ --type pptx --template template.pptx
-    md2office batch --input-dir ./content/ --output-dir ./outputs/ --type xlsx
-    md2office drawio-export diagram.drawio --output diagram.png
-    md2office serve [--host 0.0.0.0] [--port 8000]
+    text2officeprocessor convert --input input.md --template template.pptx --output output.pptx --type pptx
+    text2officeprocessor convert --input input.md --template template.docx --output output.docx --type docx
+    text2officeprocessor convert --input input.md --output output.xlsx --type xlsx
+    text2officeprocessor convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
+    text2officeprocessor convert --slides-md slides.md --template template.pptx --output out.pptx --config my-rules.yaml
+    text2officeprocessor analyze template.pptx
+    text2officeprocessor batch --input-dir ./content/ --output-dir ./outputs/ --type pptx --template template.pptx
+    text2officeprocessor batch --input-dir ./content/ --output-dir ./outputs/ --type xlsx
+    text2officeprocessor drawio-export diagram.drawio --output diagram.png
+    text2officeprocessor serve [--host 0.0.0.0] [--port 8000]
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ import typer
 from src.core.engines.docx.engine import DOCXEngine
 from src.core.engines.pptx.engine import PPTXEngine
 from src.core.engines.xlsx.engine import XLSXEngine
-from src.core.exceptions import MD2OfficeError
+from src.core.exceptions import Text2OfficeProcessorError
 from src.core.llm.runtime_config import resolve_provider_selection
 from src.core.llm.providers import build_provider
 from src.core.models import OutputFormat
@@ -35,7 +35,7 @@ from src.core.planner.content_planner import ContentPlanner
 from src.core.validation.validator import ProgrammaticValidator
 
 app = typer.Typer(
-    name="md2office",
+    name="text2officeprocessor",
     help="Convert markdown / text / HTML to PPTX, DOCX, or XLSX using template-driven rendering.",
     add_completion=False,
 )
@@ -114,7 +114,7 @@ def convert(
 ) -> None:
     """Convert an input document to PPTX, DOCX, or XLSX."""
     _setup_logging(log_level)
-    logger = logging.getLogger("md2office.cli")
+    logger = logging.getLogger("text2officeprocessor.cli")
 
     # -- Resolve LLM provider (local-first; configurable)
     provider = None
@@ -148,7 +148,7 @@ def convert(
             _run_docx(input_file, resolved_template, output, provider, validate, config, logger, llm_validator)
         elif output_type == OutputFormat.XLSX:
             _run_xlsx(input_file, output, provider, validate, logger, llm_validator)
-    except MD2OfficeError as exc:
+    except Text2OfficeProcessorError as exc:
         typer.echo(f"\n[ERROR] {exc}", err=True)
         raise typer.Exit(code=1)
     except Exception as exc:
@@ -358,7 +358,7 @@ def batch(
 ) -> None:
     """Convert every input file in a directory to the chosen output format."""
     _setup_logging(log_level)
-    logger = logging.getLogger("md2office.batch")
+    logger = logging.getLogger("text2officeprocessor.batch")
 
     if not input_dir.is_dir():
         typer.echo(f"[ERROR] Input directory not found: {input_dir}", err=True)
@@ -477,7 +477,7 @@ def watch(
 ) -> None:
     """Watch an input file and auto-regenerate the output on every save."""
     _setup_logging(log_level)
-    logger = logging.getLogger("md2office.watch")
+    logger = logging.getLogger("text2officeprocessor.watch")
 
     if not input_file.exists():
         typer.echo(f"[ERROR] Input file not found: {input_file}", err=True)
@@ -619,7 +619,7 @@ def drawio_export(
 
 @app.command("templates")
 def list_templates() -> None:
-    """List the bundled generic templates included with md2office."""
+    """List the bundled generic templates included with text2officeprocessor."""
     typer.echo("\nBundled templates (use with --template or omit for auto-selection):\n")
 
     found_any = False
@@ -651,19 +651,19 @@ def serve(
     reload: bool = typer.Option(False, "--reload", help="Enable auto-reload (development only)."),
     log_level: str = typer.Option("info", "--log-level", help="Uvicorn log level."),
 ) -> None:
-    """Start the MD2Office web UI server."""
+    """Start the Text2OfficeProcessor web UI server."""
     try:
         import uvicorn
     except ImportError:
         typer.echo(
             "[ERROR] Web UI requires extra dependencies. Install with:\n"
-            "  pip install md2office[web]\n"
+            "  pip install text2officeprocessor[web]\n"
             "or: pip install fastapi 'uvicorn[standard]' python-multipart",
             err=True,
         )
         raise typer.Exit(code=1)
 
-    typer.echo(f"\nMD2Office Web UI — http://{host}:{port}\nPress Ctrl+C to stop.\n")
+    typer.echo(f"\nText2OfficeProcessor Web UI — http://{host}:{port}\nPress Ctrl+C to stop.\n")
     uvicorn.run(
         "src.web.app:create_app",
         factory=True,

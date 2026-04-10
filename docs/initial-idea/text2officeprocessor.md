@@ -4,7 +4,7 @@ Below is a **Windsurf-compatible Software Design Specification (SDS)**. It is st
 
 # SOFTWARE SPECIFICATION
 
-## Project: MD2Office Intelligent Converter
+## Project: Text2OfficeProcessor Intelligent Converter
 
 ---
 
@@ -546,7 +546,7 @@ validation:
 # 11. CLI INTERFACE
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input input.md \
   --template template.pptx \
   --output output.pptx \

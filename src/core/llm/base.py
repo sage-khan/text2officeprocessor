@@ -1,5 +1,5 @@
 """
-LLM abstraction layer for md2office.
+LLM abstraction layer for text2officeprocessor.
 
 Scope (STRICT — per specification):
 - Markdown normalization

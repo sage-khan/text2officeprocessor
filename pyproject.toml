@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "md2office"
+name = "text2officeprocessor"
 version = "0.3.0"
 description = "Convert markdown/text/HTML to PPTX, DOCX, and XLSX using template-driven deterministic rendering with optional LLM normalization."
 readme = "README.md"
@@ -51,7 +51,7 @@ dev = [
 ]
 
 [project.scripts]
-md2office = "src.cli.main:main"
+text2officeprocessor = "src.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/sage-khan/text2officeprocessor"

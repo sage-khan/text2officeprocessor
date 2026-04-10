@@ -4,6 +4,41 @@ All changes are recorded here with timestamps. Append-only.
 
 ---
 
+## [0.3.0] — 2026-04-07
+
+### Added / Changed
+
+**Launch readiness hardening (backend + web UI):**
+- Fixed web drag/drop upload path to attach dropped file to the real form input (not label-only UI state).
+- Added `output_name` support in `POST /convert`, with safe filename sanitization.
+- Added UI output filename field and explicit browser-download/save behavior messaging.
+- Added explicit startup dependency guard for `python-multipart`.
+
+**LLM runtime architecture update (local-first):**
+- Added `VLLMProvider` in `src/core/llm/providers.py`.
+- Added `.env` loading for provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `VLLM_API_KEY`) without overwriting existing env vars.
+- Added `src/core/llm/runtime_config.py` to resolve provider/model via `config/llm_config.yaml` (default provider + per-provider model/base_url).
+- CLI and web runtime now use config-driven local-first provider resolution; `none` explicitly disables LLM.
+
+**Config and local deployment workflow:**
+- Updated both runtime and bundled `llm_config.yaml` to include vLLM provider block.
+- Default local model updated to `llama3.1:8b` for Ollama.
+- Added `.env.example` and tracked it via `.gitignore` allowlist.
+- Added backend switch/run scripts:
+  - `scripts/switch-llm-backend.sh` (one-command backend switch, optional service start)
+  - `scripts/run-vllm-external.sh` (run vLLM with external cache path)
+- Added vLLM Docker Compose profile in `docker-compose.yml`.
+
+**Backend robustness:**
+- XLSX engine now sanitizes invalid worksheet title characters and guarantees unique sheet names.
+
+**Tests:**
+- Added `tests/test_llm_runtime_config.py` (provider resolution + vLLM factory support).
+- Added web test for custom output filename.
+- Added XLSX test for sheet name sanitization and uniqueness.
+
+---
+
 ## [0.1.0] — 2026-04-07
 
 ### Initial Release
@@ -17,7 +52,7 @@ All changes are recorded here with timestamps. Append-only.
 - `DOCXEngine` — template body injection; image/logo preservation; in-order body iteration
 - `XLSXEngine` — openpyxl structured mapping; auto column widths; header freeze
 - `ProgrammaticValidator` — artifact checks, placeholder checks, file size heuristics
-- `CLI` (Typer) — `md2office convert` and `md2office analyze` commands
+- `CLI` (Typer) — `text2officeprocessor convert` and `text2officeprocessor analyze` commands
 
 **Test results (2026-04-07):**
 - 38/38 unit and integration tests pass
@@ -44,13 +79,13 @@ All changes are recorded here with timestamps. Append-only.
 
 **Docker support:**
 - `Dockerfile` — multi-stage build (builder + slim runtime); non-root `appuser`; `/data` volume mount point
-- `docker-compose.yml` — `md2office` service + optional `ollama` sidecar (behind `llm` profile)
+- `docker-compose.yml` — `text2officeprocessor` service + optional `ollama` sidecar (behind `llm` profile)
 - `.dockerignore` — excludes venv, tests, outputs, secrets, IDE files
-- Image builds successfully: `docker build -t md2office .`
+- Image builds successfully: `docker build -t text2officeprocessor .`
 
 **CLI invokable from anywhere:**
-- `pip install -e .` registers `md2office` binary in the venv
-- Shell wrapper script `md2office` at project root for PATH-based invocation
+- `pip install -e .` registers `text2officeprocessor` binary in the venv
+- Shell wrapper script `text2officeprocessor` at project root for PATH-based invocation
 - Fixed `pyproject.toml` build backend from `setuptools.backends.legacy:build` → `setuptools.build_meta` for compatibility with older setuptools
 
 **Documentation:**
@@ -74,7 +109,7 @@ All changes are recorded here with timestamps. Append-only.
 - `src/data/` package created to hold bundled templates and config inside the Python package tree
 - `[tool.setuptools.package-data]` wired to include `*.pptx`, `*.docx`, `*.yaml` from `src.data`
 - `MANIFEST.in` added for sdist completeness
-- Wheel verified: `src/data/templates/` and `src/data/config/` present in `md2office-0.2.0-py3-none-any.whl`
+- Wheel verified: `src/data/templates/` and `src/data/config/` present in `text2officeprocessor-0.2.0-py3-none-any.whl`
 
 **Bundled generic templates (`templates/` + `src/data/templates/`):**
 - `generic-slides.pptx` — 13-slide template bank matching all `DEFAULT_TEMPLATE_MAP` intents; placeholder strings align exactly with `config/default_rules.yaml`
@@ -82,7 +117,7 @@ All changes are recorded here with timestamps. Append-only.
 - Generated deterministically via `scripts/create_bundled_templates.py` (committed, reproducible)
 
 **CLI improvements:**
-- `md2office templates` subcommand — lists all bundled templates with slide counts and paths
+- `text2officeprocessor templates` subcommand — lists all bundled templates with slide counts and paths
 - `--template` is now optional for PPTX and DOCX; falls back to bundled template automatically
 - `_resolve_template()` uses `importlib.resources` for PyPI installs; falls back to file path for editable installs
 - Bundled template auto-selection printed to stdout: `Using bundled template: generic-slides.pptx`
@@ -115,7 +150,7 @@ All changes are recorded here with timestamps. Append-only.
 
 ### Added
 
-**`md2office batch` command (`src/cli/main.py`):**
+**`text2officeprocessor batch` command (`src/cli/main.py`):**
 - Converts every supported file (`.md`, `.txt`, `.html`, `.htm`) in a directory to the chosen output format
 - `--input-dir` / `--output-dir` — source and destination; output dir created automatically
 - `--type pptx | docx | xlsx` — output format (default: pptx)
@@ -156,7 +191,7 @@ All changes are recorded here with timestamps. Append-only.
 - Image is centred on the slide with a 0.5" margin, preserving aspect ratio
 - Missing file or export failure → warning log only (slide still rendered without image)
 
-**`md2office drawio-export` CLI command:**
+**`text2officeprocessor drawio-export` CLI command:**
 - Exports a `.drawio` file to PNG directly from the command line
 - `--scale`, `--border`, `--transparent`, `--page`, `--all-pages` options
 - Usable independently of the PPTX pipeline
@@ -195,7 +230,7 @@ All changes are recorded here with timestamps. Append-only.
 
 ### Added
 
-**`md2office watch` command (`src/cli/main.py`):**
+**`text2officeprocessor watch` command (`src/cli/main.py`):**
 - Watches an input file (`.md`, `.txt`, `.html`) and auto-regenerates the output on every save
 - `--input` / `--output` / `--type` — same semantics as `convert`
 - `--slides-md` — if provided, also watched; any save triggers a rebuild
@@ -218,17 +253,17 @@ All changes are recorded here with timestamps. Append-only.
 
 ### Added
 
-**Web UI (`src/web/app.py`, `md2office serve`):**
+**Web UI (`src/web/app.py`, `text2officeprocessor serve`):**
 - Browser interface at `GET /` — drag-and-drop or click-to-browse, output format selector, LLM provider/model fields, download link
 - `GET /health` — JSON health check
 - `POST /convert` — multipart upload, returns the converted file as an attachment
 - Bundled templates auto-selected for PPTX/DOCX; temporary files cleaned up via BackgroundTask
 - Input/output validation: unsupported types return HTTP 422
-- FastAPI optional extra: `pip install md2office[web]`
+- FastAPI optional extra: `pip install text2officeprocessor[web]`
 
-**`md2office serve` CLI command:**
+**`text2officeprocessor serve` CLI command:**
 - `--host`, `--port`, `--reload`, `--log-level` options
-- Prints `MD2Office Web UI — http://host:port` on startup
+- Prints `Text2OfficeProcessor Web UI — http://host:port` on startup
 - Clean ImportError message if `fastapi`/`uvicorn` not installed
 
 **Dependencies:**

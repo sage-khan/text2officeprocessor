@@ -160,7 +160,7 @@ _client = TestClient(create_app())
 
 def test_web_health_check_is_json():
     resp = _client.get("/health")
-    assert resp.json() == {"status": "ok", "service": "md2office"}
+    assert resp.json() == {"status": "ok", "service": "text2officeprocessor"}
 
 
 def test_web_convert_empty_file_returns_error(tmp_path):
