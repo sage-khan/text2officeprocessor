@@ -63,7 +63,7 @@ Or add the project to your `PATH` permanently and use the included shell wrapper
 
 ```bash
 # Add once to ~/.bashrc or ~/.zshrc
-export PATH="$PATH:/home/metanet/ProgramFiles/text2officeprocessor"
+export PATH="$PATH:/path/to/text2officeprocessor"
 ```
 
 Then from anywhere:

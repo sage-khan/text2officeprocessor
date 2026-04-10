@@ -30,7 +30,17 @@ outputs/
 .idea/
 .vscode/
 .windsurf/
-
+.cursor/
+.agent/
+.gemini/
+.huggingface/
+.openai/
+.anthropic/
+.google/
+.azure/
+.aws/
+.ibm/
+.oracle/
 # Backup files
 *.bkp
 *.bak
