@@ -1,7 +1,7 @@
 """
 PPTX Engine — SlidePart Clone + Inject method.
 
-This engine implements the proven SlidePart cloning approach from md2office-rules.md.
+This engine implements the proven SlidePart cloning approach from text2officeprocessor-rules.md.
 Key guarantees:
 - Background images and all complex formatting are preserved via XML-level cloning
 - Text replacement happens at the run level only (never text_frame.text = ...)

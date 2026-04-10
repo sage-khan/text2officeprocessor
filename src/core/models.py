@@ -1,5 +1,5 @@
 """
-Domain models for md2office — all dataclasses that flow through the pipeline.
+Domain models for text2officeprocessor — all dataclasses that flow through the pipeline.
 """
 from __future__ import annotations
 

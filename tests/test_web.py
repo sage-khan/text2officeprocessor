@@ -1,5 +1,5 @@
 """
-Tests for the MD2Office Web UI (FastAPI app).
+Tests for the Text2OfficeProcessor Web UI (FastAPI app).
 """
 import sys
 from pathlib import Path
@@ -35,7 +35,7 @@ def test_health_returns_ok():
 def test_index_returns_html():
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "MD2Office" in resp.text
+    assert "Text2OfficeProcessor" in resp.text
     assert "convert-btn" in resp.text
     assert "drop-zone" in resp.text
 

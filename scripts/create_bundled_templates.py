@@ -1,7 +1,7 @@
 """
 scripts/create_bundled_templates.py
 
-Generates the bundled generic templates shipped with md2office.
+Generates the bundled generic templates shipped with text2officeprocessor.
 
 Run once from the project root:
     python scripts/create_bundled_templates.py

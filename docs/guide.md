@@ -1,10 +1,10 @@
-# MD2Office — Usage, Architecture & Folder Structure Guide
+# Text2OfficeProcessor — Usage, Architecture & Folder Structure Guide
 
 ## Overview
 
-MD2Office is a production-grade Python tool and library that converts plain text formats into professionally formatted office documents using your own branded templates. It takes `.md`, `.txt`, or `.html` as input and produces `.pptx`, `.docx`, or `.xlsx` output — with all template backgrounds, images, fonts, and layouts preserved exactly as designed.
+Text2OfficeProcessor is a production-grade Python tool and library that converts plain text formats into professionally formatted office documents using your own branded templates. It takes `.md`, `.txt`, or `.html` as input and produces `.pptx`, `.docx`, or `.xlsx` output — with all template backgrounds, images, fonts, and layouts preserved exactly as designed.
 
-The core principle is **deterministic, template-driven rendering**: every replacement is traceable, every slide is auditable, and no AI model ever writes the final document. An optional LLM layer (Ollama, OpenAI, Claude, Groq, OpenRouter) can normalize and tag content before planning, but the actual document construction is always 100% programmatic.
+The core principle is **deterministic, template-driven rendering**: every replacement is traceable, every slide is auditable, and no AI model ever writes the final document. An optional LLM layer (Ollama, vLLM, OpenAI, Claude, Groq, OpenRouter) can normalize and tag content before planning, but the actual document construction is always 100% programmatic.
 
 ---
 
@@ -13,10 +13,10 @@ The core principle is **deterministic, template-driven rendering**: every replac
 ### From PyPI (recommended for most users)
 
 ```bash
-pip install md2office
+pip install text2officeprocessor
 ```
 
-That's it. The `md2office` command is immediately available, and the bundled generic templates are included — no template file needed to get started.
+That's it. The `text2officeprocessor` command is immediately available, and the bundled generic templates are included — no template file needed to get started.
 
 ### From source (for development or contribution)
 
@@ -25,13 +25,13 @@ git clone https://github.com/sage-khan/text2officeprocessor
 cd text2officeprocessor
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e .          # installs the md2office CLI command in editable mode
+pip install -e .          # installs the text2officeprocessor CLI command in editable mode
 ```
 
 ### Docker
 
 ```bash
-docker build -t md2office .
+docker build -t text2officeprocessor .
 ```
 
 See the [Docker section](#running-with-docker) for full usage.
@@ -43,8 +43,8 @@ See the [Docker section](#running-with-docker) for full usage.
 ### After pip install (PyPI or editable)
 
 ```bash
-md2office --help
-md2office convert --help
+text2officeprocessor --help
+text2officeprocessor convert --help
 ```
 
 ### As a CLI command (editable install, venv explicit path)
@@ -52,7 +52,7 @@ md2office convert --help
 From **any directory** on the system, using the venv binary directly:
 
 ```bash
-/path/to/text2officeprocessor/.venv/bin/md2office convert \
+/path/to/text2officeprocessor/.venv/bin/text2officeprocessor convert \
   --slides-md /path/to/slides.md \
   --template  /path/to/template.pptx \
   --output    /path/to/output.pptx \
@@ -69,11 +69,11 @@ export PATH="$PATH:/home/metanet/ProgramFiles/text2officeprocessor"
 Then from anywhere:
 
 ```bash
-md2office convert --slides-md section-02-slides.md \
+text2officeprocessor convert --slides-md section-02-slides.md \
   --template ec-council-sections.pptx \
   --output section-02.pptx --type pptx
 
-md2office analyze my-template.pptx
+text2officeprocessor analyze my-template.pptx
 ```
 
 ### Via Docker (no Python needed on host)
@@ -81,7 +81,7 @@ md2office analyze my-template.pptx
 ```bash
 docker run --rm \
   -v /path/to/your/files:/data \
-  md2office convert \
+  text2officeprocessor convert \
   --slides-md /data/slides.md \
   --template  /data/template.pptx \
   --output    /data/output.pptx \
@@ -97,7 +97,7 @@ docker run --rm \
 After install, the bundled `generic-slides.pptx` is used automatically when you omit `--template`:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --output    outputs/presentation.pptx
 ```
@@ -105,7 +105,7 @@ md2office convert \
 See what templates are bundled:
 
 ```bash
-md2office templates
+text2officeprocessor templates
 ```
 
 ### PPTX from pre-authored slides markdown
@@ -113,7 +113,7 @@ md2office templates
 Use your own branded template by passing `--template`:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --template  template.pptx \
   --output    outputs/presentation.pptx \
@@ -122,10 +122,10 @@ md2office convert \
 
 ### PPTX from raw markdown (full pipeline)
 
-MD2Office parses the markdown, normalizes it with rule-based heuristics (or an LLM), and maps content to slides automatically:
+Text2OfficeProcessor parses the markdown, normalizes it with rule-based heuristics (or an LLM), and maps content to slides automatically:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input    content.md \
   --template template.pptx \
   --output   output.pptx \
@@ -137,7 +137,7 @@ md2office convert \
 Pass `--config` to override placeholder strings and validation thresholds for a specific template:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --template  template.pptx \
   --output    output.pptx \
@@ -149,19 +149,19 @@ md2office convert \
 Add `--llm` and `--llm-model` to use an LLM for semantic tagging before planning:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input     content.md \
   --template  template.pptx \
   --output    output.pptx \
   --type pptx \
   --llm ollama \
-  --llm-model mistral
+  --llm-model llama3.1:8b
 ```
 
 ### DOCX output
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input    content.md \
   --template template.docx \
   --output   output.docx \
@@ -173,7 +173,7 @@ md2office convert \
 No template needed. Tables in the markdown become sheets:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input  report.md \
   --output report.xlsx \
   --type xlsx
@@ -184,7 +184,7 @@ md2office convert \
 Before writing a `slides.md` for a new template, run `analyze` to discover the exact placeholder text strings in every shape:
 
 ```bash
-md2office analyze path/to/template.pptx
+text2officeprocessor analyze path/to/template.pptx
 ```
 
 This prints every slide, shape, paragraph, and run — giving you the exact strings to use in `- placeholder: "old" → "new"` lines.
@@ -203,7 +203,7 @@ Any slide in your `slides.md` can include a draw.io diagram (or a plain PNG/JPG)
 - diagram: "diagrams/architecture.drawio"
 ```
 
-Paths are resolved relative to the working directory where `md2office convert` is run.
+Paths are resolved relative to the working directory where `text2officeprocessor convert` is run.
 
 ### Supported diagram formats
 
@@ -217,10 +217,10 @@ Paths are resolved relative to the working directory where `md2office convert` i
 Export a `.drawio` file to PNG without generating a presentation:
 
 ```bash
-md2office drawio-export diagrams/architecture.drawio
-md2office drawio-export diagrams/architecture.drawio --output outputs/architecture.png --scale 3
-md2office drawio-export diagrams/multi-page.drawio --all-pages --output outputs/
-md2office drawio-export diagrams/flow.drawio --page 2 --transparent
+text2officeprocessor drawio-export diagrams/architecture.drawio
+text2officeprocessor drawio-export diagrams/architecture.drawio --output outputs/architecture.png --scale 3
+text2officeprocessor drawio-export diagrams/multi-page.drawio --all-pages --output outputs/
+text2officeprocessor drawio-export diagrams/flow.drawio --page 2 --transparent
 ```
 
 ### Requirements
@@ -240,14 +240,14 @@ The web interface lets you convert files in the browser without using the CLI.
 ### Install and start
 
 ```bash
-pip install md2office[web]
-md2office serve
+pip install text2officeprocessor[web]
+text2officeprocessor serve
 ```
 
 Navigate to [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 ```bash
-md2office serve --host 0.0.0.0 --port 8080 --reload
+text2officeprocessor serve --host 0.0.0.0 --port 8080 --reload
 ```
 
 ### Endpoints
@@ -264,15 +264,16 @@ md2office serve --host 0.0.0.0 --port 8080 --reload
 |-------|------|---------|-------------|
 | `file` | file | required | Input `.md`, `.txt`, `.html`, `.htm` |
 | `output_type` | string | `pptx` | `pptx`, `docx`, or `xlsx` |
-| `llm_provider` | string | empty | `ollama`, `openai`, `claude`, `groq`, `openrouter` |
+| `llm_provider` | string | empty | `ollama`, `vllm`, `openai`, `claude`, `groq`, `openrouter`, `none` |
 | `llm_model` | string | empty | Model name (provider default if blank) |
+| `output_name` | string | empty | Optional download filename stem |
 
 ### Behaviour
 
 - Bundled generic templates are used automatically for PPTX/DOCX
 - Temporary files are deleted from disk after the download response is sent
 - All errors return JSON `{"detail": "..."}` with an appropriate HTTP status code
-- The web server is optional — if `fastapi`/`uvicorn` are not installed, `md2office serve` prints an installation hint and exits cleanly
+- The web server is optional — if `fastapi`/`uvicorn` are not installed, `text2officeprocessor serve` prints an installation hint and exits cleanly
 
 ---
 
@@ -281,7 +282,7 @@ md2office serve --host 0.0.0.0 --port 8080 --reload
 After any render, you can run an optional LLM-powered coherence check on the output. This is in addition to the always-on programmatic checks.
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --output output.pptx \
   --llm ollama --llm-model mistral \
@@ -303,8 +304,8 @@ md2office convert \
 - Requires `--llm` to be configured. Without `--llm`, the flag is silently ignored (with a `[WARN]` note).
 - Content is truncated to 8 000 characters before being sent to the LLM.
 - All failures (provider unavailable, malformed response, parse error) return an empty result — the document is **always saved**.
-- Works with all providers: `ollama`, `openai`, `claude`, `openrouter`, `groq`.
-- Also available on `md2office batch --llm-validate`.
+- Works with all providers: `ollama`, `vllm`, `openai`, `claude`, `openrouter`, `groq`.
+- Also available on `text2officeprocessor batch --llm-validate`.
 
 ### Example output
 
@@ -322,7 +323,7 @@ md2office convert \
 Convert every markdown, text, or HTML file in a folder in one command. Output files are named after their source file, with the output extension appended:
 
 ```bash
-md2office batch \
+text2officeprocessor batch \
   --input-dir ./content/ \
   --output-dir ./outputs/ \
   --type xlsx
@@ -345,7 +346,7 @@ Batch complete: 4/4 succeeded, 0 failed.
 **Filter to specific files** with `--pattern`:
 
 ```bash
-md2office batch \
+text2officeprocessor batch \
   --input-dir ./slides/ \
   --output-dir ./outputs/ \
   --type pptx \
@@ -356,7 +357,7 @@ md2office batch \
 **Continue on error** (default) or **stop on first failure** with `--fail-fast`:
 
 ```bash
-md2office batch \
+text2officeprocessor batch \
   --input-dir ./content/ \
   --output-dir ./outputs/ \
   --type pptx \
@@ -424,7 +425,7 @@ The primary PPTX workflow uses a structured markdown file that maps content expl
 | `- item_0N_title: "..."` | Excellence Grid item title |
 | `---` | Slide separator (resets bullet mode) |
 
-The `template_index` corresponds to the zero-based position of the slide in the template file's slide bank. Use `md2office analyze` to discover which index maps to which slide layout.
+The `template_index` corresponds to the zero-based position of the slide in the template file's slide bank. Use `text2officeprocessor analyze` to discover which index maps to which slide layout.
 
 ---
 
@@ -478,7 +479,7 @@ These rules exist because violating them causes silent data loss or corrupt outp
 
 ## Text Overflow Handling
 
-When injected content is longer than a shape's bounding box allows, MD2Office automatically reduces the font size to keep everything within bounds. This runs as a post-injection step on every slide, after replacements, bullets, and structured items have all been applied.
+When injected content is longer than a shape's bounding box allows, Text2OfficeProcessor automatically reduces the font size to keep everything within bounds. This runs as a post-injection step on every slide, after replacements, bullets, and structured items have all been applied.
 
 **How it works:**
 
@@ -524,12 +525,13 @@ text2officeprocessor/
 │   │   │       └── engine.py     # XLSXEngine — openpyxl structured mapping
 │   │   ├── llm/
 │   │   │   ├── base.py           # LLMProvider abstract base class
-│   │   │   ├── providers.py      # OllamaProvider, OpenAIProvider, ClaudeProvider, etc.
+│   │   │   ├── providers.py      # OllamaProvider, VLLMProvider, OpenAIProvider, ClaudeProvider, etc.
+│   │   │   ├── runtime_config.py # Local-first provider resolution from llm_config.yaml
 │   │   │   └── normalizer.py     # LLMNormalizer — ParsedDocument → [(SlideIntent, SlideContent)]
 │   │   └── validation/
 │   │       └── validator.py      # ProgrammaticValidator — post-render checks
 │   └── cli/
-│       └── main.py               # Typer CLI — md2office convert / analyze
+│       └── main.py               # Typer CLI — text2officeprocessor convert / analyze
 ├── config/
 │   ├── default_rules.yaml        # Formatting, overflow, and validation defaults
 │   └── llm_config.yaml           # LLM provider configuration
@@ -557,10 +559,12 @@ text2officeprocessor/
 │       ├── changelog.md
 │       └── diagnostics.md
 ├── scripts/
-│   └── create_bundled_templates.py  # Regenerate bundled templates
+│   ├── create_bundled_templates.py  # Regenerate bundled templates
+│   ├── switch-llm-backend.sh        # One-command default backend switch (ollama/vllm)
+│   └── run-vllm-external.sh         # Run vLLM with cache on external disk path
 ├── Dockerfile                    # Standard Docker image
-├── docker-compose.yml            # Compose for local dev + Ollama LLM
-├── md2office                     # Shell wrapper (add to PATH for system-wide use)
+├── docker-compose.yml            # Compose for local dev + Ollama and vLLM profiles
+├── text2officeprocessor                     # Shell wrapper (add to PATH for system-wide use)
 ├── outputs/                      # Default output directory (gitignored)
 ├── requirements.txt
 ├── pyproject.toml
@@ -575,7 +579,8 @@ LLM is entirely optional. Without it, the tool uses rule-based heuristics and wo
 
 | Provider | Flag | Required Env Var | Default Model |
 |---|---|---|---|
-| Ollama (local) | `--llm ollama` | None | `mistral` |
+| Ollama (local) | `--llm ollama` | None | `llama3.1:8b` |
+| vLLM (OpenAI-compatible local/server) | `--llm vllm` | optional `VLLM_API_KEY` | `meta-llama/Llama-3.1-8B-Instruct` |
 | OpenAI | `--llm openai` | `OPENAI_API_KEY` | `gpt-4o-mini` |
 | Claude | `--llm claude` | `ANTHROPIC_API_KEY` | `claude-3-haiku-20240307` |
 | OpenRouter | `--llm openrouter` | `OPENROUTER_API_KEY` | varies |
@@ -585,7 +590,7 @@ LLM is entirely optional. Without it, the tool uses rule-based heuristics and wo
 
 ```bash
 export OPENAI_API_KEY="sk-..."
-md2office convert --input content.md --template t.pptx --output out.pptx \
+text2officeprocessor convert --input content.md --template t.pptx --output out.pptx \
   --type pptx --llm openai
 ```
 
@@ -594,7 +599,7 @@ When using Docker, pass keys via `--env` or an `.env` file:
 ```bash
 docker run --rm --env-file .env \
   -v /path/to/files:/data \
-  md2office convert --input /data/content.md --template /data/t.pptx \
+  text2officeprocessor convert --input /data/content.md --template /data/t.pptx \
   --output /data/out.pptx --type pptx --llm openai
 ```
 
@@ -605,7 +610,7 @@ docker run --rm --env-file .env \
 ### Build
 
 ```bash
-docker build -t md2office .
+docker build -t text2officeprocessor .
 ```
 
 ### Convert a file
@@ -615,7 +620,7 @@ Mount your working directory to `/data` inside the container:
 ```bash
 docker run --rm \
   -v $(pwd):/data \
-  md2office convert \
+  text2officeprocessor convert \
   --slides-md /data/slides.md \
   --template  /data/template.pptx \
   --output    /data/output.pptx \
@@ -627,20 +632,33 @@ docker run --rm \
 ```bash
 docker run --rm \
   -v $(pwd):/data \
-  md2office analyze /data/template.pptx
+  text2officeprocessor analyze /data/template.pptx
 ```
 
 ### With Ollama (local LLM, no API key needed)
 
-Use `docker-compose.yml` which starts both md2office and an Ollama sidecar:
+Use `docker-compose.yml` which starts text2officeprocessor and optional local LLM profiles:
 
 ```bash
 docker compose up -d ollama
-docker compose run --rm md2office convert \
+docker compose run --rm text2officeprocessor convert \
   --input /data/content.md \
   --template /data/template.pptx \
   --output /data/output.pptx \
-  --type pptx --llm ollama --llm-model mistral
+  --type pptx --llm ollama --llm-model llama3.1:8b
+```
+
+Run vLLM profile:
+
+```bash
+docker compose --profile vllm up -d vllm
+```
+
+Switch default local backend in both runtime/bundled config files:
+
+```bash
+scripts/switch-llm-backend.sh ollama
+scripts/switch-llm-backend.sh vllm
 ```
 
 ---
@@ -674,7 +692,7 @@ If slides are unexpectedly small, check that the template is being loaded from t
 
 ---
 
-## Extending MD2Office
+## Extending Text2OfficeProcessor
 
 ### Adding a new LLM provider
 
@@ -686,7 +704,7 @@ If slides are unexpectedly small, check that the template is being loaded from t
 
 ### Adding a new template type
 
-1. Run `md2office analyze` on the new template to identify placeholder strings and layout positions
+1. Run `text2officeprocessor analyze` on the new template to identify placeholder strings and layout positions
 2. Update `DEFAULT_TEMPLATE_MAP` in `content_planner.py` with the new `SlideIntent → (template_index, type_name)` mapping
 3. If the slide uses structured items (cards, grids, icons), add injection logic in `apply_items()` in `pptx/engine.py`
 
@@ -726,7 +744,7 @@ All other fields (font overflow limits, validation strictness, header colour, et
 python -m pytest tests/ -v
 ```
 
-Expected: **38 tests pass** across the preprocessor, planner, all three engines, and the validator.
+Expected: **123+ tests pass** across parser, planner, engines, validator, robustness, and web routes.
 
 To run a specific module:
 

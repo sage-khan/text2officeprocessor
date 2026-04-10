@@ -1,20 +1,20 @@
 services:
 
-  # ── md2office ──────────────────────────────────────────────────────────────
+  # ── text2officeprocessor ──────────────────────────────────────────────────────────────
   # Primary conversion service. Mount your working directory to /data.
   #
   # Usage:
-  #   docker compose run --rm md2office convert \
+  #   docker compose run --rm text2officeprocessor convert \
   #     --slides-md /data/slides.md \
   #     --template  /data/template.pptx \
   #     --output    /data/output.pptx \
   #     --type pptx
-  md2office:
+  text2officeprocessor:
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime
-    image: md2office:latest
+    image: text2officeprocessor:latest
     volumes:
       - ${DATA_DIR:-./outputs}:/data
     environment:
@@ -30,11 +30,11 @@ services:
         condition: service_healthy
         required: false
     networks:
-      - md2office-net
+      - text2officeprocessor-net
 
   # ── ollama (optional local LLM) ────────────────────────────────────────────
   # Provides a local LLM so you can use --llm ollama without any API key.
-  # The service is optional — md2office works without it using rule-based
+  # The service is optional — text2officeprocessor works without it using rule-based
   # normalization. Set OLLAMA_ENABLED=false to skip it.
   #
   # First run: docker compose run --rm ollama ollama pull mistral
@@ -53,7 +53,7 @@ services:
       retries: 5
       start_period: 15s
     networks:
-      - md2office-net
+      - text2officeprocessor-net
 
   # ── vLLM (optional local/server OpenAI-compatible endpoint) ───────────────
   # Start with:
@@ -85,14 +85,14 @@ services:
       retries: 8
       start_period: 30s
     networks:
-      - md2office-net
+      - text2officeprocessor-net
 
 networks:
-  md2office-net:
+  text2officeprocessor-net:
     driver: bridge
 
 volumes:
   ollama-models:
-    name: md2office-ollama-models
+    name: text2officeprocessor-ollama-models
   vllm-cache:
-    name: md2office-vllm-cache
+    name: text2officeprocessor-vllm-cache

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# md2office — invoke the md2office CLI from anywhere.
+# text2officeprocessor — invoke the text2officeprocessor CLI from anywhere.
 #
 # Usage examples:
-#   md2office convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
-#   md2office convert --input content.md --template template.pptx --output out.pptx --type pptx
-#   md2office analyze template.pptx
+#   text2officeprocessor convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
+#   text2officeprocessor convert --input content.md --template template.pptx --output out.pptx --type pptx
+#   text2officeprocessor analyze template.pptx
 #
 # This script resolves the project venv automatically regardless of
 # where you call it from.

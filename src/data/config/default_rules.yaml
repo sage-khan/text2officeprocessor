@@ -1,4 +1,4 @@
-# md2office default formatting and validation rules
+# text2officeprocessor default formatting and validation rules
 # These values are used as defaults; override per-project via --config flag.
 
 pptx:

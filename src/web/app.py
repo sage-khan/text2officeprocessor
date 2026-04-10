@@ -1,7 +1,7 @@
 """
 src/web/app.py
 
-MD2Office Web UI — a minimal FastAPI application that exposes the conversion
+Text2OfficeProcessor Web UI — a minimal FastAPI application that exposes the conversion
 pipeline through a browser interface.
 
 Endpoints:
@@ -10,7 +10,7 @@ Endpoints:
   POST /convert    — Convert an uploaded file; returns the output file
 
 Start with:
-  md2office serve [--host 0.0.0.0] [--port 8000]
+  text2officeprocessor serve [--host 0.0.0.0] [--port 8000]
   python -m uvicorn src.web.app:create_app --factory --reload
 """
 
@@ -43,7 +43,7 @@ _HTML = r"""\
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MD2Office — Document Converter</title>
+  <title>Text2OfficeProcessor — Document Converter</title>
   <style>
     /* ── Reset & tokens ───────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -462,7 +462,7 @@ _HTML = r"""\
       <line x1="16" y1="17" x2="8" y2="17"/>
       <polyline points="10 9 9 9 8 9"/>
     </svg>
-    MD<span class="logo-dot">2</span>Office
+    Text<span class="logo-dot">2</span>OfficeProcessor
   </a>
   <div class="nav-right">
     <span class="nav-badge">v0.3.0</span>
@@ -664,7 +664,7 @@ Start typing your Markdown here..."></textarea>
 
 <!-- ── Footer ── -->
 <footer>
-  MD2Office &#x2014; Open Source &#xB7; MIT &#xB7;
+  Text2OfficeProcessor &#x2014; Open Source &#xB7; MIT &#xB7;
   <a href="https://github.com/sage-khan/text2officeprocessor" target="_blank" rel="noopener">GitHub</a>
 </footer>
 
@@ -675,9 +675,9 @@ const themeBtn = document.getElementById('theme-toggle');
 function applyTheme(t) {
   html.setAttribute('data-theme', t);
   themeBtn.textContent = t === 'dark' ? '☀️' : '🌙';
-  localStorage.setItem('md2office-theme', t);
+  localStorage.setItem('text2officeprocessor-theme', t);
 }
-applyTheme(localStorage.getItem('md2office-theme') || 'light');
+applyTheme(localStorage.getItem('text2officeprocessor-theme') || 'light');
 themeBtn.addEventListener('click', () => {
   applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
 });
@@ -867,17 +867,17 @@ def create_app():
     if not _FASTAPI_AVAILABLE:
         raise ImportError(
             "Web UI requires extra dependencies. Install with:\n"
-            "  pip install md2office[web]\n"
+            "  pip install text2officeprocessor[web]\n"
             "or: pip install fastapi 'uvicorn[standard]' python-multipart"
         )
     if not _MULTIPART_AVAILABLE:
         raise ImportError(
             "Web UI requires python-multipart for file uploads. Install with:\n"
             "  pip install python-multipart\n"
-            "or install all web extras: pip install md2office[web]"
+            "or install all web extras: pip install text2officeprocessor[web]"
         )
 
-    app = FastAPI(title="MD2Office Web UI", version="0.3.0", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Text2OfficeProcessor Web UI", version="0.3.0", docs_url=None, redoc_url=None)
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index():
@@ -885,7 +885,7 @@ def create_app():
 
     @app.get("/health")
     async def health():
-        return JSONResponse({"status": "ok", "service": "md2office"})
+        return JSONResponse({"status": "ok", "service": "text2officeprocessor"})
 
     @app.post("/convert")
     async def convert(
@@ -903,7 +903,7 @@ def create_app():
         from src.core.engines.docx.engine import DOCXEngine
         from src.core.engines.pptx.engine import PPTXEngine
         from src.core.engines.xlsx.engine import XLSXEngine
-        from src.core.exceptions import MD2OfficeError
+        from src.core.exceptions import Text2OfficeProcessorError
         from src.core.models import OutputFormat
         from src.core.parser.preprocessor import InputPreprocessor
         from src.core.planner.content_planner import ContentPlanner
@@ -986,7 +986,7 @@ def create_app():
 
             except HTTPException:
                 raise
-            except MD2OfficeError as exc:
+            except Text2OfficeProcessorError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             except Exception as exc:
                 logger.exception("Web convert error")

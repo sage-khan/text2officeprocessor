@@ -1,31 +1,31 @@
 """
-Custom exceptions for md2office.
+Custom exceptions for text2officeprocessor.
 """
 
 
-class MD2OfficeError(Exception):
-    """Base exception for all md2office errors."""
+class Text2OfficeProcessorError(Exception):
+    """Base exception for all text2officeprocessor errors."""
 
 
-class TemplateNotFoundError(MD2OfficeError):
+class TemplateNotFoundError(Text2OfficeProcessorError):
     """Raised when a template file does not exist or cannot be opened."""
 
 
-class InputFormatError(MD2OfficeError):
+class InputFormatError(Text2OfficeProcessorError):
     """Raised when the input file format is unsupported or malformed."""
 
 
-class RenderError(MD2OfficeError):
+class RenderError(Text2OfficeProcessorError):
     """Raised when rendering fails; no partial output is saved."""
 
 
-class PlannerError(MD2OfficeError):
+class PlannerError(Text2OfficeProcessorError):
     """Raised when the content planner cannot build a valid plan."""
 
 
-class LLMUnavailableError(MD2OfficeError):
+class LLMUnavailableError(Text2OfficeProcessorError):
     """Raised when the LLM provider cannot be reached; triggers fallback."""
 
 
-class ValidationError(MD2OfficeError):
+class ValidationError(Text2OfficeProcessorError):
     """Raised when the validation pipeline finds blocking errors."""

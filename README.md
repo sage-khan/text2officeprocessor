@@ -1,8 +1,8 @@
-# MD2Office — Intelligent Document Converter
+# Text2OfficeProcessor — Intelligent Document Converter
 
 > Convert **Markdown / Text / HTML** to **PPTX, DOCX, and XLSX** using template-driven deterministic rendering with optional LLM normalization.
 
-[![PyPI](https://img.shields.io/pypi/v/md2office.svg)](https://pypi.org/project/md2office/)
+[![PyPI](https://img.shields.io/pypi/v/text2officeprocessor.svg)](https://pypi.org/project/text2officeprocessor/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -10,7 +10,7 @@
 
 ## What It Does
 
-MD2Office takes your content in plain text formats and converts it into professionally formatted office documents using **your own templates**. The tool preserves all template branding, backgrounds, images, and layouts exactly — it only injects your content at the run level.
+Text2OfficeProcessor takes your content in plain text formats and converts it into professionally formatted office documents using **your own templates**. The tool preserves all template branding, backgrounds, images, and layouts exactly — it only injects your content at the run level.
 
 | Input | Output |
 |-------|--------|
@@ -32,10 +32,10 @@ MD2Office takes your content in plain text formats and converts it into professi
 ### Install
 
 ```bash
-pip install md2office
+pip install text2officeprocessor
 ```
 
-The `md2office` command is immediately available. Bundled generic templates are included — no template file needed to get started.
+The `text2officeprocessor` command is immediately available. Bundled generic templates are included — no template file needed to get started.
 
 **From source** (for development or contribution):
 
@@ -51,19 +51,19 @@ pip install -r requirements.txt && pip install -e .
 No template file needed. The bundled generic template is used automatically:
 
 ```bash
-md2office convert --slides-md slides.md --output outputs/presentation.pptx
+text2officeprocessor convert --slides-md slides.md --output outputs/presentation.pptx
 ```
 
 See what templates are bundled:
 
 ```bash
-md2office templates
+text2officeprocessor templates
 ```
 
 ### Generate a PPTX with your own template
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --template  template.pptx \
   --output    outputs/presentation.pptx \
@@ -73,7 +73,7 @@ md2office convert \
 ### Generate from raw markdown (full pipeline)
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input content.md \
   --template template.pptx \
   --output output.pptx \
@@ -83,7 +83,7 @@ md2office convert \
 ### Generate DOCX
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input content.md \
   --template template.docx \
   --output output.docx \
@@ -93,7 +93,7 @@ md2office convert \
 ### Generate XLSX
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input report.md \
   --output report.xlsx \
   --type xlsx
@@ -102,7 +102,7 @@ md2office convert \
 ### Use a custom rules config
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --template template.pptx \
   --output output.pptx \
@@ -112,7 +112,7 @@ md2office convert \
 ### Batch convert an entire directory
 
 ```bash
-md2office batch \
+text2officeprocessor batch \
   --input-dir ./content/ \
   --output-dir ./outputs/ \
   --type xlsx
@@ -121,7 +121,7 @@ md2office batch \
 Convert only `.md` files to PPTX using your own template:
 
 ```bash
-md2office batch \
+text2officeprocessor batch \
   --input-dir ./slides/ \
   --output-dir ./outputs/ \
   --type pptx \
@@ -142,14 +142,14 @@ In your `slides.md`:
 Or export a diagram directly:
 
 ```bash
-md2office drawio-export diagrams/architecture.drawio --output outputs/architecture.png
-md2office drawio-export diagrams/multi-page.drawio --all-pages
+text2officeprocessor drawio-export diagrams/architecture.drawio --output outputs/architecture.png
+text2officeprocessor drawio-export diagrams/multi-page.drawio --all-pages
 ```
 
 ### Watch mode — auto-regenerate on save
 
 ```bash
-md2office watch \
+text2officeprocessor watch \
   --input notes.md \
   --output presentation.pptx \
   --type pptx
@@ -158,7 +158,7 @@ md2office watch \
 Every time you save `notes.md`, the output is regenerated automatically. A 1-second debounce prevents multiple rapid saves from triggering redundant builds. Press `Ctrl+C` to stop.
 
 ```bash
-md2office watch \
+text2officeprocessor watch \
   --input slides.md \
   --output presentation.xlsx \
   --type xlsx \
@@ -171,7 +171,7 @@ md2office watch \
 After rendering, ask an LLM to check the output for truncated text, unreplaced placeholders, content mismatches, and empty sections:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --output output.pptx \
   --llm ollama --llm-model mistral \
@@ -185,8 +185,8 @@ The check is non-blocking — if the LLM is unavailable the document is still sa
 Install the web extras and launch the browser interface:
 
 ```bash
-pip install md2office[web]
-md2office serve
+pip install text2officeprocessor[web]
+text2officeprocessor serve
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) — drag-and-drop a `.md`, `.txt`, or `.html` file, choose an output format, and download the result.
@@ -194,7 +194,7 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) — drag-and-drop a `.md`, `
 By default, the UI uses **Auto (default local)** LLM mode, which resolves to the provider in `config/llm_config.yaml` (default: Ollama). You can switch to `Rule-based only` to disable LLM.
 
 ```bash
-md2office serve --host 0.0.0.0 --port 8080
+text2officeprocessor serve --host 0.0.0.0 --port 8080
 ```
 
 ### Custom validation config
@@ -202,7 +202,7 @@ md2office serve --host 0.0.0.0 --port 8080
 Override the built-in placeholder list, artifact tokens, LLM prompt, and more by pointing to your own YAML:
 
 ```bash
-md2office convert --input doc.md --output out.xlsx --type xlsx --config my-rules.yaml
+text2officeprocessor convert --input doc.md --output out.xlsx --type xlsx --config my-rules.yaml
 ```
 
 See `config/default_rules.yaml` for all available keys (`validation.known_placeholders`, `llm_validation.prompt`, etc.).
@@ -210,7 +210,7 @@ See `config/default_rules.yaml` for all available keys (`validation.known_placeh
 ### Analyze a template before authoring
 
 ```bash
-md2office analyze path/to/template.pptx
+text2officeprocessor analyze path/to/template.pptx
 ```
 
 ---
@@ -290,7 +290,7 @@ LLM is entirely optional — the tool works fully offline with rule-based normal
 | Groq | `--llm groq` | `GROQ_API_KEY` |
 
 ```bash
-md2office convert --input content.md --template t.pptx \
+text2officeprocessor convert --input content.md --template t.pptx \
   --output out.pptx --type pptx --llm ollama --llm-model mistral
 ```
 
@@ -337,7 +337,7 @@ This section walks through the complete workflow for each output format — from
 Before writing any content, run `analyze` on your template to discover the exact placeholder text strings in every shape. These are the strings you will reference in your slides markdown:
 
 ```bash
-md2office analyze my-template.pptx
+text2officeprocessor analyze my-template.pptx
 ```
 
 Sample output:
@@ -413,7 +413,7 @@ Create a file called `slides.md`. Each slide block starts with a header that nam
 ### Step 3 — Generate the PPTX
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --template  my-template.pptx \
   --output    outputs/presentation.pptx \
@@ -435,7 +435,7 @@ The tool prints a summary and runs the validator automatically:
 Point to any `.md` or `.txt` file and a `.docx` template. The full pipeline parses the markdown structure and injects it into the template body:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input    report.md \
   --template my-template.docx \
   --output   outputs/report.docx \
@@ -467,7 +467,7 @@ Any markdown file containing tables is automatically mapped to sheets. No templa
 **Command:**
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --input  data.md \
   --output outputs/q1-report.xlsx \
   --type   xlsx
@@ -496,7 +496,7 @@ placeholder_map:
 Then pass it with `--config`:
 
 ```bash
-md2office convert \
+text2officeprocessor convert \
   --slides-md slides.md \
   --template  corporate-template.pptx \
   --output    output.pptx \
@@ -514,7 +514,7 @@ Mount your working directory to `/data` and pass all paths relative to that moun
 ```bash
 docker run --rm \
   -v $(pwd):/data \
-  md2office convert \
+  text2officeprocessor convert \
   --slides-md /data/slides.md \
   --template  /data/my-template.pptx \
   --output    /data/output.pptx \
@@ -524,7 +524,7 @@ docker run --rm \
 For LLM-assisted conversion using a local Ollama model:
 
 ```bash
-docker compose run --rm md2office convert \
+docker compose run --rm text2officeprocessor convert \
   --input   /data/content.md \
   --template /data/template.pptx \
   --output  /data/output.pptx \
