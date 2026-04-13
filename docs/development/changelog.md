@@ -4,6 +4,53 @@ All changes are recorded here with timestamps. Append-only.
 
 ---
 
+## [0.4.0] — 2026-04-13
+
+### Added — Extraction Pipeline & Pandoc Integration
+
+Inspired by **edgemint** (Mansuy, Apache 2.0) style extraction architecture and
+**opendataloader-pdf** hybrid processing model. See `docs/development/implementation-v2.md`.
+
+**Style Extraction (`src/core/extraction/style_extractor.py`)**
+- DOCX → `ExtractedStyleSheet`: parses styles.xml (fonts, sizes, colors, bold/italic,
+  alignment, spacing, indentation), numbering.xml, theme1.xml, section properties
+- PPTX → `ExtractedStyleSheet`: extracts all slide layouts with placeholder geometry
+  (position, size, type, font), slide dimensions, and theme colors/fonts
+- Shared theme parser for both formats (major/minor fonts, 12+ color slots)
+- JSON serialization with None-stripping for clean output
+
+**Content Extraction (`src/core/extraction/content_extractor.py`)**
+- DOCX → Markdown: Pandoc preferred (fenced divs, bracketed spans), python-docx fallback
+- PPTX → canonical `## SLIDE N — template_index: N` format (round-trip ready)
+- XLSX → Markdown tables (one section per sheet)
+- Embedded media extraction (images from DOCX/PPTX ZIP archives)
+- Styles + content + media extracted in one call
+
+**Data Models (`src/core/extraction/models.py`)**
+- `ExtractedStyleSheet` root container with JSON serialization
+- `DocxStyle`, `FontProperties`, `ParagraphFormat`, `SectionProperties`
+- `PptxSlideLayout`, `PlaceholderInfo` with EMU → pt conversion
+- `NumberingDef`, `NumberingLevel`, `ThemeInfo`
+
+**DOCX Engine Pandoc Integration (`src/core/engines/docx/engine.py`)**
+- Dual rendering: Pandoc `--reference-doc` (preferred) + python-docx (fallback)
+- `DOCXEngine(use_pandoc=True|False|None)` constructor for explicit control
+- `_plan_to_markdown()` converts DocPlan to clean Markdown for Pandoc
+- Auto-detect Pandoc availability, graceful fallback on failure
+
+**New CLI Commands (`src/cli/main.py`)**
+- `extract-styles <template> -o styles.json` — full visual identity extraction
+- `extract <file> -o dir/` — content + styles + media extraction
+- `analyze-template <template>` — template summary (styles, layouts, fonts, page size)
+- `diff-styles before.json after.json` — style version comparison
+
+**Tests (35 new, 164 total)**
+- `test_style_extractor.py`: DOCX/PPTX extraction, JSON serialization, model units
+- `test_content_extractor.py`: round-trip extraction for all 3 formats, CLI smoke tests
+- Fixed flaky `test_cli_llm_validate_without_llm_warns` assertion
+
+---
+
 ## [0.3.0] — 2026-04-07
 
 ### Added / Changed
