@@ -1,4 +1,4 @@
-# MD2Office v2 — Implementation Plan
+# Text2OfficeProcessor v2 — Implementation Plan
 
 ## Date: 2026-04-13
 
@@ -8,7 +8,7 @@
 
 ## 1. Problem Statement
 
-MD2Office v0.x delivers functional MD/TXT/HTML → PPTX/DOCX/XLSX conversion using
+Text2OfficeProcessor v0.x delivers functional MD/TXT/HTML → PPTX/DOCX/XLSX conversion using
 template placeholder matching and rule-based content planning. However, the approach
 has structural limitations that prevent production-grade output quality:
 
@@ -34,7 +34,7 @@ Markdown content to regenerate pixel-perfect branded documents.
 
 **Key modules studied:**
 
-| Module | Purpose | Takeaway for MD2Office |
+| Module | Purpose | Takeaway for Text2OfficeProcessor |
 |--------|---------|----------------------|
 | `extract/document.py` | Reads styles.xml, theme1.xml, numbering.xml from DOCX ZIP | We need equivalent PPTX/DOCX style extraction |
 | `schema/models.py` | Pydantic models: `StyleSheet`, `Style`, `FontProperties`, `ParagraphFormat`, `ThemeInfo` | We should model extracted styles as structured JSON, not just YAML placeholder maps |
@@ -62,7 +62,7 @@ Repository: `github.com/opendataloader-project/opendataloader-pdf`
 AI backend for complex pages. Bounding-box-aware layout analysis. Multi-format output:
 Markdown, JSON (with coordinates), HTML, Tagged PDF.
 
-**Takeaway for MD2Office:**
+**Takeaway for Text2OfficeProcessor:**
 
 | Concept | How it applies |
 |---------|---------------|
@@ -177,17 +177,17 @@ Extract content from Office files back into Markdown, enabling round-trip editin
 **CLI commands:**
 
 ```bash
-md2office extract report.docx -o project/
+text2officeprocessor extract report.docx -o project/
 # → project/content.md
 # → project/styles.json
 # → project/media/
 
-md2office extract slides.pptx -o project/
+text2officeprocessor extract slides.pptx -o project/
 # → project/slides.md  (canonical slides markdown format)
 # → project/pptx_styles.json
 # → project/media/
 
-md2office extract data.xlsx -o project/
+text2officeprocessor extract data.xlsx -o project/
 # → project/content.md  (markdown tables)
 ```
 
@@ -211,13 +211,13 @@ direct python-docx injection. This gives superior style fidelity.
 New subcommands for template introspection:
 
 ```bash
-md2office analyze-template template.pptx
+text2officeprocessor analyze-template template.pptx
 # Shows: slide count, layout names, placeholder positions, fonts
 
-md2office extract-styles template.docx -o styles.json
+text2officeprocessor extract-styles template.docx -o styles.json
 # Extracts full visual identity to JSON
 
-md2office diff-styles old.json new.json
+text2officeprocessor diff-styles old.json new.json
 # Compares two extracted style sheets
 ```
 

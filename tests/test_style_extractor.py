@@ -148,7 +148,7 @@ def test_stylesheet_save_load(tmp_path):
     path = ss.save(tmp_path / "test_styles.json")
     assert path.exists()
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "md2office/v1"
+    assert data["schema_version"] == "text2officeprocessor/v1"
 
 
 def test_strip_none_omits_empty():

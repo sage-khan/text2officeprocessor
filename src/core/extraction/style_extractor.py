@@ -3,7 +3,7 @@ Style Extractor — reads DOCX/PPTX templates and produces an ExtractedStyleShee
 
 Inspired by edgemint's extract/document.py but extended for PPTX support.
 The extracted data enables:
-- Template analysis (``md2office analyze-template``)
+- Template analysis (``text2officeprocessor analyze-template``)
 - Style-aware generation (Pandoc reference.docx)
 - Template diffing and version tracking
 """

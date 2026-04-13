@@ -166,7 +166,7 @@ class ExtractedStyleSheet:
     This is the JSON-serializable equivalent of edgemint's StyleSheet model,
     extended to support both DOCX and PPTX templates.
     """
-    schema_version: str = "md2office/v1"
+    schema_version: str = "text2officeprocessor/v1"
     format: str = ""                  # "docx" | "pptx"
     source_file: str = ""
     extracted_at: str = ""
