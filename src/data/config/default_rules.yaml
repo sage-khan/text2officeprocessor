@@ -6,6 +6,21 @@ pptx:
   bullets_max: 6              # Maximum bullet points per slide
   min_file_size_bytes: 50000  # Below this = likely missing backgrounds
 
+  # Content overflow handling strategy when text exceeds shape capacity
+  # Options: "summarize" (LLM condense), "split" (multi-slide), "shrink" (font reduce), "auto" (LLM decides)
+  overflow_strategy: "auto"
+
+  # Shape capacity thresholds for overflow detection (characters)
+  max_body_chars: 400         # Max characters in body text box before overflow handling
+  max_bullet_chars: 120       # Max characters per bullet point
+  max_slide_total_chars: 600  # Max total characters per slide
+
+  # Template layout selection for text-heavy content
+  # Maps content density → preferred template_index for high-capacity layouts
+  high_capacity_layouts:
+    - 6    # Multi Point (higher text capacity)
+    - 7    # Key Highlights (4-column layout for dense content)
+
 docx:
   preserve_headers: true      # Keep template headers/footers
   preserve_images: true       # Keep logo/brand images from template body
@@ -140,3 +155,96 @@ llm_validation:
     ---
     {content}
     ---
+
+# ---------------------------------------------------------------------------
+# LLM-powered Spreadsheet Reorganizer
+# Consolidates fragmented document sections into logical Excel tables
+# ---------------------------------------------------------------------------
+spreadsheet_reorganizer:
+  enabled: true              # Enable LLM reorganization (disable = use raw section mapping)
+  max_sheets: 10             # Maximum sheets to create (prevents fragmentation)
+  consolidate_threshold: 3   # If >N sections have similar structure, merge them
+
+  # Logical table types the LLM can create
+  table_types:
+    - dashboard          # KPI summary with metrics
+    - breakdown          # Categorized data (regional, product line, etc.)
+    - timeline           # Time-series data
+    - comparison         # Side-by-side comparison
+    - matrix             # Risk/impact matrices
+    - raw                # Preserve original structure
+
+  # Prompt template for reorganization (variables: {document_json})
+  prompt: |
+    You are a data organization expert. Analyze the following document structure
+    and reorganize it into logical Excel tables suitable for business analysis.
+
+    INPUT: A document with sections, tables, and lists.
+    OUTPUT: A structured plan for Excel sheets with clear table definitions.
+
+    Rules:
+    1. CONSOLIDATE related metrics into coherent tables (don't create a sheet per section)
+    2. CREATE a "Dashboard" sheet with key KPIs if quantitative data exists
+    3. FLATTEN hierarchical sections into table rows where appropriate
+    4. PRESERVE table structure where it already exists
+    5. GROUP similar data types (e.g., all regional data in one sheet)
+
+    For each sheet, specify:
+    - name: Short, descriptive sheet name (max 31 chars)
+    - type: One of: dashboard | breakdown | timeline | comparison | matrix | raw
+    - columns: List of column headers
+    - rows: List of row data (each row is a list of cell values)
+    - description: Brief explanation of what this sheet contains
+
+    Return ONLY valid JSON in this exact format:
+    {{
+      "sheets": [
+        {{
+          "name": "Dashboard",
+          "type": "dashboard",
+          "columns": ["Metric", "Value", "Change"],
+          "rows": [["Revenue", "$12.4M", "+28%"], ...],
+          "description": "Key performance indicators summary"
+        }}
+      ],
+      "consolidation_notes": "Brief notes on what was consolidated"
+    }}
+
+    Document structure to analyze:
+    ---
+    {document_json}
+    ---
+
+# ---------------------------------------------------------------------------
+# PPTX Content Summarization (for overflow_strategy: "summarize")
+# ---------------------------------------------------------------------------
+pptx_summarizer:
+  enabled: true
+  max_chars_per_slide: 500
+  max_bullets_per_slide: 5
+  max_chars_per_bullet: 100
+
+  prompt: |
+    You are a presentation design expert. Condense the following slide content
+    to fit within presentation constraints while preserving key information.
+
+    Constraints:
+    - Maximum {max_bullets} bullet points
+    - Maximum {max_chars_per_bullet} characters per bullet
+    - Maximum {max_total_chars} total characters for the slide
+
+    Original content:
+    ---
+    {content}
+    ---
+
+    Rules:
+    1. PRESERVE all key metrics and numbers
+    2. CONDENSE explanatory text to essential phrases
+    3. REMOVE filler words and redundant statements
+    4. SPLIT into multiple slides if content cannot be condensed meaningfully
+    5. RETURN concise, presentation-ready bullets
+
+    Output format: JSON array of slides, each with {"title": "...", "bullets": [...]}
+    If content fits in one slide: {{"slides": [{{"title": "...", "bullets": [...]}}]}}
+    If splitting needed: {{"slides": [{{"title": "... Part 1", ...}}, {{"title": "... Part 2", ...}}]}}

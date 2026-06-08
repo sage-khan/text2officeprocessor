@@ -152,10 +152,108 @@ class DOCXEngine:
                 raise RenderError(
                     f"Pandoc exited with code {result.returncode}: {result.stderr.strip()}"
                 )
+
+            self._harden_tables(output_path)
+
             logger.info("DOCX rendered via Pandoc → %s", output_path.name)
             return output_path
         finally:
             tmp_md.unlink(missing_ok=True)
+
+    @staticmethod
+    def _harden_tables(docx_path: Path) -> None:
+        """
+        Make every table in the rendered DOCX self-contained: explicit
+        borders and per-column widths written directly onto the table XML.
+
+        Pandoc's docx writer references a table style named "Table" AND a
+        paragraph style named "Compact" on every table-cell paragraph — both
+        defined in Pandoc's *built-in* reference.docx, but absent from most
+        user --reference-doc templates (which only ship "Normal",
+        "TableNormal", etc). When LibreOffice meets a table cell whose
+        paragraph references an unresolvable style, it doesn't fall back
+        gracefully — it abandons the table's grid layout altogether and
+        renders every cell stacked in a single column. Dropping unresolvable
+        style references (and writing explicit borders/widths so the table
+        still looks intentional) sidesteps style resolution entirely.
+        """
+        from docx import Document
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        try:
+            doc = Document(str(docx_path))
+        except Exception as exc:
+            logger.warning("Could not reopen DOCX to harden tables: %s", exc)
+            return
+
+        if not doc.tables:
+            return
+
+        known_style_ids = {s.style_id for s in doc.styles}
+
+        for table in doc.tables:
+            tbl = table._tbl
+            tblPr = tbl.tblPr
+
+            # An unresolved <w:tblStyle> reference (Pandoc always emits
+            # w:val="Table", which most reference templates don't define)
+            # makes LibreOffice abandon the table's grid layout entirely.
+            # Drop it — the explicit borders/widths below render the table
+            # correctly without depending on any named style.
+            style_el = tblPr.find(qn("w:tblStyle"))
+            if style_el is not None and style_el.get(qn("w:val")) not in known_style_ids:
+                tblPr.remove(style_el)
+
+            borders = tblPr.find(qn("w:tblBorders"))
+            if borders is None:
+                borders = OxmlElement("w:tblBorders")
+                tblPr.append(borders)
+            for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+                edge_el = borders.find(qn(f"w:{edge}"))
+                if edge_el is None:
+                    edge_el = OxmlElement(f"w:{edge}")
+                    borders.append(edge_el)
+                edge_el.set(qn("w:val"), "single")
+                edge_el.set(qn("w:sz"), "4")
+                edge_el.set(qn("w:space"), "0")
+                edge_el.set(qn("w:color"), "auto")
+
+            grid = tbl.find(qn("w:tblGrid"))
+            grid_widths = (
+                [int(gc.get(qn("w:w"))) for gc in grid.findall(qn("w:gridCol"))]
+                if grid is not None else []
+            )
+
+            for row in table.rows:
+                for col_idx, cell in enumerate(row.cells):
+                    tcPr = cell._tc.get_or_add_tcPr()
+                    tcW = tcPr.find(qn("w:tcW"))
+                    if tcW is None:
+                        tcW = OxmlElement("w:tcW")
+                        tcPr.append(tcW)
+                    if grid_widths:
+                        width = grid_widths[min(col_idx, len(grid_widths) - 1)]
+                    else:
+                        width = 1980
+                    tcW.set(qn("w:w"), str(width))
+                    tcW.set(qn("w:type"), "dxa")
+
+                    # Pandoc stamps every cell paragraph with <w:pStyle
+                    # w:val="Compact"/>. If the reference template doesn't
+                    # define that style, drop the reference — an unresolvable
+                    # pStyle inside a table cell is what makes LibreOffice
+                    # collapse the whole table's grid.
+                    for para in cell.paragraphs:
+                        pPr = para._p.find(qn("w:pPr"))
+                        if pPr is None:
+                            continue
+                        pStyle = pPr.find(qn("w:pStyle"))
+                        if pStyle is not None and pStyle.get(qn("w:val")) not in known_style_ids:
+                            pPr.remove(pStyle)
+
+        doc.save(str(docx_path))
+        logger.debug("Hardened %d table(s) in %s", len(doc.tables), docx_path.name)
 
     @staticmethod
     def _plan_to_markdown(plan: DocPlan) -> str:

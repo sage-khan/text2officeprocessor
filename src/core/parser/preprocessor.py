@@ -208,7 +208,7 @@ class InputPreprocessor:
         """Collect all lines belonging to a markdown table."""
         table_lines: list[str] = []
         i = start
-        while i < len(lines) and (lines[i].strip().startswith("|") or re.match(r"^\s*[-|:]+\s*$", lines[i])):
+        while i < len(lines) and (lines[i].strip().startswith("|") or re.match(r"^[\s|:-]+$", lines[i])):
             table_lines.append(lines[i])
             i += 1
         return table_lines, i
@@ -217,7 +217,7 @@ class InputPreprocessor:
         """Parse a markdown table into headers + rows."""
         rows = []
         for line in lines:
-            if re.match(r"^\s*[-|:]+\s*$", line):
+            if re.match(r"^[\s|:-]+$", line):
                 continue
             cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
             rows.append(cells)

@@ -4,6 +4,50 @@ All changes are recorded here with timestamps. Append-only.
 
 ---
 
+## [0.4.1] — 2026-06-08
+
+### Added — PPTX Overflow Handling + LLM Spreadsheet Reorganizer
+
+**PPTX Content Fitting (NEW):**
+- Four overflow handling strategies: `summarize` (LLM condense), `split` (multi-slide), `shrink` (font reduce), `auto` (LLM selects)
+- Configurable via `pptx.overflow_strategy` in `default_rules.yaml`
+- Per-strategy thresholds: `max_body_chars`, `max_bullet_chars`, `max_slide_total_chars`
+- High-capacity layout selection for dense content
+- New CLI flag: `--overflow-strategy {summarize,split,shrink,auto}`
+
+**`PPTXContentFitter` class (`src/core/engines/pptx/content_fitter.py`):**
+- `fit_content()` — analyzes content density and applies selected strategy
+- `fit_slide_plan()` — processes entire SlidePlan, may increase slide count for split strategy
+- LLM-powered summarization with metric preservation rules
+- Rule-based splitting with intelligent chunking
+
+**LLM-Powered Spreadsheet Reorganizer (NEW):**
+- `SpreadsheetReorganizer` class (`src/core/planner/spreadsheet_reorganizer.py`)
+- Consolidates fragmented section-per-sheet mapping into logical business tables
+- Creates "Dashboard" sheet with KPIs when quantitative data detected
+- Table fingerprinting to group similar tables (e.g., Regional + Product breakdowns)
+- LLM prompt template for intelligent data organization
+- Rule-based fallback when LLM unavailable (KPI extraction, table consolidation)
+
+**Configuration additions (`default_rules.yaml`):**
+- `spreadsheet_reorganizer.enabled` — enable/disable LLM reorganization
+- `spreadsheet_reorganizer.max_sheets` — limit fragmentation
+- `spreadsheet_reorganizer.table_types` — dashboard, breakdown, timeline, comparison, matrix, raw
+- `pptx_summarizer.enabled` + thresholds for LLM condensing
+- Full prompt templates for both reorganizer and summarizer
+
+**CLI updates:**
+- `--overflow-strategy` flag for PPTX conversion
+- `_run_pptx()` now passes `overflow_strategy` and `llm_provider` to `PPTXEngine`
+- `_run_xlsx()` now passes `llm_provider` to `ContentPlanner.plan_spreadsheet()`
+
+**`ContentPlanner.plan_spreadsheet()` signature change:**
+- Now accepts `llm_provider: Any | None = None` parameter
+- Uses LLM reorganizer when provider available, falls back to rule-based consolidation
+- Still supports original section-per-sheet mapping as final fallback
+
+---
+
 ## [0.4.0] — 2026-04-13
 
 ### Added — Extraction Pipeline & Pandoc Integration

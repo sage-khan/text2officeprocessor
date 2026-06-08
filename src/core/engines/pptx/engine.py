@@ -232,12 +232,96 @@ def replace_text_everywhere(slide: Any, old_text: str, new_text: str) -> bool:
 # Bullet injection
 # ---------------------------------------------------------------------------
 
+_BULLET_GLYPHS = ("•", "◦", "▪", "●", "○", "‣", "·", "-", "*", "–", "—")
+_BULLET_GLYPH_RE = re.compile(
+    r"^(\s*(?:" + "|".join(re.escape(g) for g in _BULLET_GLYPHS) + r")\s*)"
+)
+_BULLET_PLACEHOLDER_RE = re.compile(r"(?i)^\s*(bullet point|point|item)\s+\S+")
+
+
+def _looks_like_bullet_placeholder(text: str) -> bool:
+    """Heuristic: a short single-line shape that looks like a bullet slot."""
+    stripped = text.strip()
+    if not stripped or len(stripped) > 200 or "\n" in stripped:
+        return False
+    return bool(_BULLET_GLYPH_RE.match(stripped) or _BULLET_PLACEHOLDER_RE.match(stripped))
+
+
+def _split_bullet_glyph(text: str) -> tuple[str, str]:
+    """Split leading bullet glyph (with surrounding whitespace) from the rest."""
+    match = _BULLET_GLYPH_RE.match(text)
+    if match:
+        return match.group(1), text[match.end():]
+    return "", text
+
+
+def _find_bullet_shape_group(slide: Any) -> list[Any] | None:
+    """
+    Find sibling shapes that each hold a single bullet placeholder line
+    (the "one shape per bullet" template pattern). Returns the shapes
+    sorted top-to-bottom, or None if no such group exists.
+    """
+    candidates = [
+        shape
+        for shape in slide.shapes
+        if shape.has_text_frame and _looks_like_bullet_placeholder(shape.text_frame.text)
+    ]
+    if len(candidates) >= 2:
+        candidates.sort(key=lambda s: s.top)
+        return candidates
+    return None
+
+
+def _clone_sibling_shape(slide: Any, source_shape: Any) -> Any:
+    """XML-level clone of a shape, inserted immediately after the source."""
+    new_element = copy.deepcopy(source_shape._element)
+    source_shape._element.addnext(new_element)
+    for shape in slide.shapes:
+        if shape._element is new_element:
+            return shape
+    raise RuntimeError("Failed to locate cloned shape after insertion")
+
+
+def _fill_bullet_shape_group(slide: Any, group: list[Any], bullet_texts: list[str]) -> None:
+    """Inject one bullet per shape, cloning/blanking shapes as needed to match counts."""
+    if len(bullet_texts) > len(group):
+        last_top = group[-1].top
+        spacing = (group[-1].top - group[-2].top) if len(group) >= 2 else group[-1].height
+        shortfall = len(bullet_texts) - len(group)
+        for i in range(shortfall):
+            clone = _clone_sibling_shape(slide, group[-1])
+            clone.top = last_top + spacing * (i + 1)
+            group.append(clone)
+
+    for i, shape in enumerate(group):
+        tf = shape.text_frame
+        para = tf.paragraphs[0]
+        if i < len(bullet_texts):
+            glyph, _ = _split_bullet_glyph(para.text)
+            new_text = f"{glyph}{bullet_texts[i]}" if glyph else bullet_texts[i]
+            if para.runs:
+                para.runs[0].text = new_text
+                for trailing_run in para.runs[1:]:
+                    trailing_run.text = ""
+            else:
+                para.add_run().text = new_text
+        else:
+            for r in para.runs:
+                r.text = ""
+        for extra_para in tf.paragraphs[1:]:
+            for r in extra_para.runs:
+                r.text = ""
+
+
 def set_bullets(slide: Any, bullet_texts: list[str]) -> bool:
     """
-    Inject bullet text into the first multi-paragraph text frame in the slide.
+    Inject bullet text into the slide's bullet area.
 
-    Identifies the bullet area by looking for a text frame with multiple
-    mostly-empty paragraphs (the template placeholder pattern).
+    Supports two template patterns:
+      A) A single text frame with multiple mostly-empty paragraphs
+         (one paragraph per bullet).
+      B) A group of sibling shapes, each holding exactly one bullet
+         placeholder line (e.g. separate "TextBox" shapes stacked vertically).
 
     Args:
         slide: python-pptx Slide object.
@@ -246,6 +330,7 @@ def set_bullets(slide: Any, bullet_texts: list[str]) -> bool:
     Returns:
         True if bullets were successfully injected.
     """
+    # Pattern A: single multi-paragraph placeholder shape.
     for shape in slide.shapes:
         if not shape.has_text_frame:
             continue
@@ -267,6 +352,13 @@ def set_bullets(slide: Any, bullet_texts: list[str]) -> bool:
                 for r in paras[i].runs:
                     r.text = ""
             return True
+
+    # Pattern B: one sibling shape per bullet.
+    group = _find_bullet_shape_group(slide)
+    if group:
+        _fill_bullet_shape_group(slide, group, bullet_texts)
+        return True
+
     return False
 
 
@@ -575,10 +667,73 @@ class PPTXEngine:
     """
     Renders a SlidePlan into a PPTX file using the SlidePart clone method.
 
+    Supports content overflow handling via PPTXContentFitter:
+    - summarize: LLM condenses dense content
+    - split: Distribute across multiple slides
+    - shrink: Reduce font size (fallback)
+    - auto: LLM selects strategy
+
     Usage:
-        engine = PPTXEngine()
+        engine = PPTXEngine()  # Default: auto overflow handling if LLM available
+        engine.render(slide_plan, template_path, output_path)
+
+        engine = PPTXEngine(overflow_strategy="split")  # Force split strategy
         engine.render(slide_plan, template_path, output_path)
     """
+
+    def __init__(
+        self,
+        overflow_strategy: str | None = None,
+        llm_provider: Any | None = None,
+    ) -> None:
+        """
+        Args:
+            overflow_strategy: "summarize" | "split" | "shrink" | "auto" | None
+                              None = load from config (default: auto)
+            llm_provider: LLMProvider for summarize/auto strategies
+        """
+        self._overflow_strategy = overflow_strategy
+        self._llm_provider = llm_provider
+
+    def _fit_plan(self, plan: SlidePlan) -> SlidePlan:
+        """Apply content fitting if enabled and provider available."""
+        if self._llm_provider is None and self._overflow_strategy != "split":
+            # No LLM, and split doesn't need it
+            return plan
+
+        try:
+            from src.core.engines.pptx.content_fitter import (
+                PPTXContentFitter,
+                OverflowConfig,
+                load_fitter_config,
+            )
+            # Load config (resolved via config_loader: repo-local, then bundled)
+            config = load_fitter_config()
+
+            # Override strategy if explicitly set
+            if self._overflow_strategy:
+                config.strategy = self._overflow_strategy
+
+            fitter = PPTXContentFitter(
+                provider=self._llm_provider,
+                config=config,
+            )
+
+            fitted_plan = fitter.fit_slide_plan(plan)
+
+            if len(fitted_plan.slides) != len(plan.slides):
+                logger.info(
+                    "Content fitting: %d slides → %d slides (%s strategy)",
+                    len(plan.slides),
+                    len(fitted_plan.slides),
+                    config.strategy,
+                )
+
+            return fitted_plan
+
+        except Exception as exc:
+            logger.warning("Content fitting failed (%s), using original plan", exc)
+            return plan
 
     def render(
         self,
@@ -624,8 +779,11 @@ class PPTXEngine:
         if not plan.slides:
             raise RenderError("SlidePlan contains no slides to render.")
 
+        # Apply content fitting if configured
+        fitted_plan = self._fit_plan(plan)
+
         # Clone and populate slides
-        for sdef in plan.slides:
+        for sdef in fitted_plan.slides:
             self._render_slide(prs, sdef, bank_count)
 
         # Remove template bank slides
@@ -711,6 +869,11 @@ class PPTXEngine:
         if sdef.diagram_path:
             self._embed_diagram(new_slide, sdef)
 
+        # Inject a photo/illustration into the template's own image slot,
+        # cropped to preserve the slot's aspect ratio and the slide's aesthetics
+        if sdef.image_path:
+            self._inject_image(new_slide, sdef)
+
         # Auto-shrink any shape whose content exceeds its bounding box
         fit_text_to_shape(new_slide)
 
@@ -772,6 +935,45 @@ class PPTXEngine:
                 sdef.slide_number,
                 suffix,
             )
+
+    def _inject_image(self, slide: Any, sdef: "SlideDefinition") -> None:
+        """
+        Fill the template's own image slot (placeholder shape or labelled
+        rectangle, e.g. "[Image placeholder]") with the user's photo, cropped
+        to the slot's aspect ratio so the template's layout is preserved.
+
+        Falls back to a centred embed if the template has no image slot —
+        this keeps `- image:` usable even on slides without a dedicated slot.
+        """
+        from src.core.engines.pptx.image_injector import inject_template_image
+
+        image_path = Path(sdef.image_path)
+        if not image_path.is_absolute():
+            image_path = Path.cwd() / image_path
+
+        if not image_path.exists():
+            logger.warning(
+                "Slide %d: image file not found — %s (skipping)",
+                sdef.slide_number,
+                image_path,
+            )
+            return
+
+        if inject_template_image(slide, image_path, sdef.slide_number):
+            return
+
+        logger.info(
+            "Slide %d: no template image slot found, falling back to centred embed",
+            sdef.slide_number,
+        )
+        try:
+            slide_w = slide.shapes._spTree.getparent().getparent().slide_width
+            slide_h = slide.shapes._spTree.getparent().getparent().slide_height
+        except Exception:
+            from pptx.util import Inches
+            slide_w = Inches(13.33)
+            slide_h = Inches(7.5)
+        self._insert_image_centred(slide, image_path, slide_w, slide_h)
 
     @staticmethod
     def _insert_image_centred(slide: Any, image_path: Path, slide_w: int, slide_h: int) -> None:
