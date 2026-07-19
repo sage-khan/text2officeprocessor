@@ -4,6 +4,29 @@ All changes are recorded here with timestamps. Append-only.
 
 ---
 
+## [0.5.1] — 2026-07-19
+
+### Fixed — `set_bullets()` no longer inherits inconsistent paragraph-slot indent
+
+Template paragraph slots are not uniformly styled in the underlying XML — some slots carry
+a proper hanging indent (`marL`/`indent` set for their bullet glyph), others have neither
+attribute at all (defaults to 0/0), and a Multi Point-style 12-slot body can mix at least
+three different `marL` values across its own slots. Since `set_bullets()` fills paragraphs
+by POSITION, whichever line landed in an un-indented slot wrapped flush-left while its
+siblings hang-indented — producing visibly inconsistent wrapping unrelated to whether the
+bulleted content itself was well-formed (real defect, found reviewing a course deck built
+with this library, 2026-07-19).
+
+`set_bullets()` now captures paragraph 0's own `marL`/`indent`/`buFont`/`buChar` as a
+reference and forces every filled paragraph (not just paragraph 0) to match it via a new
+`_normalize_paragraph_indent()` helper — regardless of what that paragraph slot originally
+inherited. Covered by a new regression test, `test_set_bullets_normalizes_indent_across_
+paragraph_slots`, which fills all 12 slots of the Multi Point test template (including a
+slot with no inherited `marL`/`indent`) and asserts every slot matches paragraph 0's values
+after fill. 232/232 tests passing.
+
+---
+
 ## [0.5.0] — 2026-07-19
 
 ### Added — `set_big_statement()` for Single-Bullet "Pull-Quote" Slides

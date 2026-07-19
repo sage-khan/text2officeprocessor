@@ -264,6 +264,49 @@ def test_set_bullets_removes_unused_paragraphs():
     pytest.fail("could not locate the bullet box that set_bullets filled")
 
 
+def test_set_bullets_normalizes_indent_across_paragraph_slots():
+    """Regression test for a real, reported defect: a bullet-box's paragraph SLOTS
+    are not uniformly styled in the template XML — some slots have no marL/indent at
+    all while others have a proper hanging indent for their bullet glyph. Filling
+    bullets by position without normalizing indent meant whichever bullet landed in an
+    un-indented slot wrapped flush-left while its siblings hang-indented, producing
+    visibly inconsistent ("scattered") wrapping between bullets that are otherwise
+    identically styled. set_bullets() must force every filled paragraph's marL/indent
+    (and bullet glyph) to match paragraph 0's, regardless of what slot it landed in.
+    """
+    if not TEMPLATE_PATH.exists():
+        pytest.skip("Template not available")
+    from pptx import Presentation
+    from src.core.engines.pptx.engine import duplicate_slide, set_bullets
+
+    prs = Presentation(str(TEMPLATE_PATH))
+    # Slide index 3 is the Multi Point bank slide (12 paragraph slots); fill all 12
+    # so every slot — including any with no inherited marL/indent — gets used.
+    slide = duplicate_slide(prs, 3)
+    texts = [f"Bullet number {i}" for i in range(1, 13)]
+    ok = set_bullets(slide, texts)
+    assert ok
+
+    A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        paras = shape.text_frame.paragraphs
+        if [p.text for p in paras] != texts:
+            continue
+        ref_pPr = paras[0]._p.find(f"{A}pPr")
+        ref_marL = ref_pPr.get("marL") if ref_pPr is not None else None
+        ref_indent = ref_pPr.get("indent") if ref_pPr is not None else None
+        for i, p in enumerate(paras):
+            pPr = p._p.find(f"{A}pPr")
+            marL = pPr.get("marL") if pPr is not None else None
+            indent = pPr.get("indent") if pPr is not None else None
+            assert marL == ref_marL, f"paragraph {i}: marL {marL!r} != paragraph 0's {ref_marL!r}"
+            assert indent == ref_indent, f"paragraph {i}: indent {indent!r} != paragraph 0's {ref_indent!r}"
+        return
+    pytest.fail("could not locate the bullet box that set_bullets filled")
+
+
 def test_set_big_statement_centers_text_and_removes_bullet_glyph():
     """set_big_statement() must turn a small one-bullet placeholder into a single,
     bold, centred, bullet-free paragraph with the other paragraph slots removed

@@ -330,6 +330,36 @@ def _fill_bullet_shape_group(slide: Any, group: list[Any], bullet_texts: list[st
                 r.text = ""
 
 
+def _normalize_paragraph_indent(para: Any, ref_marL: str | None, ref_indent: str | None) -> Any:
+    """
+    Force a paragraph's pPr marL/indent to match a reference (template paragraph 0's
+    own values), so every filled paragraph wraps with the SAME hanging indent.
+
+    Root-cause fix for a real, reported defect ("un-structured text" / "no pointers,
+    scattered" look): a bullet-box's paragraph SLOTS are not uniformly styled in the
+    template XML — e.g. paragraph 0 may have marL=285750/indent=-285750 (a proper
+    hanging indent for its bullet glyph) while a later paragraph slot has NO marL/indent
+    at all (defaults to 0/0). set_bullets() fills paragraphs by POSITION, so whichever
+    bullet lands in the un-indented slot wraps flush-left while its sibling bullets wrap
+    with a hanging indent — inconsistent, "scattered" wrapping unrelated to the content
+    itself. Always normalize every filled paragraph's indent, not just its text and
+    bullet glyph.
+    """
+    pPr = para._p.find(f"{{{DRAWING_NS}}}pPr")
+    if pPr is None:
+        pPr = etree.SubElement(para._p, f"{{{DRAWING_NS}}}pPr")
+        para._p.insert(0, pPr)
+    if ref_marL is not None:
+        pPr.set("marL", ref_marL)
+    elif "marL" in pPr.attrib:
+        del pPr.attrib["marL"]
+    if ref_indent is not None:
+        pPr.set("indent", ref_indent)
+    elif "indent" in pPr.attrib:
+        del pPr.attrib["indent"]
+    return pPr
+
+
 def set_bullets(slide: Any, bullet_texts: list[str]) -> bool:
     """
     Inject bullet text into the slide's bullet area.
@@ -339,6 +369,12 @@ def set_bullets(slide: Any, bullet_texts: list[str]) -> bool:
          (one paragraph per bullet).
       B) A group of sibling shapes, each holding exactly one bullet
          placeholder line (e.g. separate "TextBox" shapes stacked vertically).
+
+    Also normalizes every used paragraph's marL/indent AND bullet glyph to match
+    paragraph 0's — template paragraph slots are not uniformly styled (some slots have
+    no marL/indent/buChar at all), so without this, later bullets in a long list can
+    wrap flush-left with no glyph while earlier ones hang-indent with a bullet. See
+    `_normalize_paragraph_indent()`.
 
     Args:
         slide: python-pptx Slide object.
@@ -356,6 +392,11 @@ def set_bullets(slide: Any, bullet_texts: list[str]) -> bool:
 
         whitespace_count = sum(1 for p in paras if not p.text.strip())
         if len(paras) >= 3 and whitespace_count >= 3:
+            ref_pPr = paras[0]._p.find(f"{{{DRAWING_NS}}}pPr")
+            ref_marL = ref_pPr.get("marL") if ref_pPr is not None else None
+            ref_indent = ref_pPr.get("indent") if ref_pPr is not None else None
+            ref_buFont = ref_pPr.find(f"{{{DRAWING_NS}}}buFont") if ref_pPr is not None else None
+            ref_buChar = ref_pPr.find(f"{{{DRAWING_NS}}}buChar") if ref_pPr is not None else None
             for i in range(min(len(bullet_texts), len(paras))):
                 if paras[i].runs:
                     paras[i].runs[0].text = bullet_texts[i]
@@ -364,6 +405,16 @@ def set_bullets(slide: Any, bullet_texts: list[str]) -> bool:
                 else:
                     # Add a run if there are none
                     paras[i].add_run().text = bullet_texts[i]
+                pPr = _normalize_paragraph_indent(paras[i], ref_marL, ref_indent)
+                if i > 0:
+                    for tag in ("buFont", "buChar", "buAutoNum", "buNone"):
+                        el = pPr.find(f"{{{DRAWING_NS}}}{tag}")
+                        if el is not None:
+                            pPr.remove(el)
+                    if ref_buFont is not None:
+                        pPr.append(copy.deepcopy(ref_buFont))
+                    if ref_buChar is not None:
+                        pPr.append(copy.deepcopy(ref_buChar))
             # Remove any remaining unfilled paragraphs ENTIRELY rather than just
             # blanking their run text. An empty <a:p> can still carry an explicit
             # <a:buChar>/<a:buAutoNum> bullet-glyph definition in its <a:pPr> (inherited
