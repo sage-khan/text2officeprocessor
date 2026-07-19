@@ -108,6 +108,7 @@ class SlideDefinition:
     items: dict[str, str] = field(default_factory=dict)
     diagram_path: str = ""
     image_path: str = ""
+    big_statement: str = ""
 
 
 @dataclass

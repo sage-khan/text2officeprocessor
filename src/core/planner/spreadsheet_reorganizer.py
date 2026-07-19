@@ -11,6 +11,7 @@ hybrid AI processing model.
 from __future__ import annotations
 
 import json
+import re
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -105,11 +106,15 @@ class SpreadsheetReorganizer:
         logger.info("Calling LLM for spreadsheet reorganization...")
         response = self._provider.generate(prompt)
 
-        # Parse LLM response
+        # Parse LLM response — models often wrap JSON in ```json fences or
+        # prose, so extract the first {...} object rather than parsing raw.
         try:
-            data = json.loads(response)
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
+            if not json_match:
+                raise ValueError("No JSON object found in LLM response")
+            data = json.loads(json_match.group(0))
             sheets_data = data.get("sheets", [])
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, ValueError) as exc:
             logger.error("Failed to parse LLM response as JSON: %s", exc)
             raise
 
@@ -347,18 +352,18 @@ For each sheet, specify:
 - description: Brief explanation of what this sheet contains
 
 Return ONLY valid JSON in this exact format:
-{
+{{
   "sheets": [
-    {
+    {{
       "name": "Dashboard",
       "type": "dashboard",
       "columns": ["Metric", "Value", "Change"],
       "rows": [["Revenue", "$12.4M", "+28%"]],
       "description": "Key performance indicators summary"
-    }
+    }}
   ],
   "consolidation_notes": "Brief notes on what was consolidated"
-}
+}}
 
 Document structure to analyze:
 ---

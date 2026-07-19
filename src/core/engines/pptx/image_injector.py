@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 # e.g. "[Image placeholder]", "Photo here", "(Insert picture)". Anchored so
 # slide titles like "Image Left Slide" don't false-positive.
 _IMAGE_PLACEHOLDER_RE = re.compile(
-    r"(?i)^\s*[\[\(]?\s*(image|photo|picture|graphic)"
+    r"(?i)^\s*[\[\(]?\s*"
+    r"(?:(?:click\s+(?:here\s+)?to\s+)?(?:insert|add)\s+)?"
+    r"(image|photo|picture|graphic)"
     r"(\s+(placeholder|here|goes here|insert))?\s*[\]\)]?\s*$"
 )
 

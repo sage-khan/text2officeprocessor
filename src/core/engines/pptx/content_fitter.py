@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from src.core.models import SlideContent, SlideDefinition, SlideIntent, SlidePlan
@@ -275,7 +277,12 @@ Return ONLY the JSON, no other text."""
 
         try:
             response = self._provider.generate(prompt)
-            data = json.loads(response)
+            # Models often wrap JSON in ```json fences or prose, so extract
+            # the first {...} object rather than parsing the raw response.
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
+            if not json_match:
+                raise json.JSONDecodeError("No JSON object found in LLM response", response, 0)
+            data = json.loads(json_match.group(0))
             slides_data = data.get("slides", [])
 
             fitted_slides: list[FittedSlide] = []

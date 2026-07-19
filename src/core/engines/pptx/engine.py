@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 PPTX_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 MARKDOWN_ARTIFACTS = ["***", "**", "__"]
 
 
@@ -60,8 +61,9 @@ def duplicate_slide(prs: Any, slide_index: int) -> Any:
     Returns:
         The newly cloned slide object (last slide in prs.slides).
     """
-    from pptx.opc.package import PackURI
+    from pptx.opc.package import PackURI, _Relationship
     from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+    from pptx.opc.constants import RELATIONSHIP_TARGET_MODE as RTM
     from pptx.parts.slide import SlidePart
 
     source_slide = prs.slides[slide_index]
@@ -82,10 +84,22 @@ def duplicate_slide(prs: Any, slide_index: int) -> Any:
         new_xml,
     )
 
-    # Copy all relationships: images, slide layouts, hyperlinks, etc.
+    # Copy all relationships: images, slide layouts, hyperlinks, etc. --
+    # PRESERVING each relationship's EXACT original rId. get_or_add() mints a
+    # fresh rId instead, which silently breaks any hardcoded r:embed="rIdN"
+    # reference still present in the deep-copied XML whenever a slide has more
+    # than one relationship (e.g. an image placeholder plus the slideLayout
+    # relationship) — the picture then fails to resolve and the shape falls
+    # back to its solid-fill placeholder colour, rendering as a plain
+    # grey/blank panel where a real image should be. Real, confirmed defect
+    # (found 2026-07-19) — do not regress to get_or_add() here.
     for rel_key in source_part.rels:
         rel = source_part.rels[rel_key]
-        new_part.rels.get_or_add(rel.reltype, rel._target)
+        new_part.rels._rels[rel_key] = _Relationship(
+            new_part.rels._base_uri, rel_key, rel.reltype,
+            target_mode=RTM.EXTERNAL if rel.is_external else RTM.INTERNAL,
+            target=rel._target,
+        )
 
     # Register the new slide part in the presentation package
     rId = prs.part.relate_to(new_part, RT.SLIDE)
@@ -293,21 +307,24 @@ def _fill_bullet_shape_group(slide: Any, group: list[Any], bullet_texts: list[st
             clone.top = last_top + spacing * (i + 1)
             group.append(clone)
 
+    # Excess shapes (fewer bullets than sibling shapes): remove the whole shape
+    # rather than leaving an empty, but still positioned and possibly
+    # bullet-styled, box on the slide.
+    for shape in group[len(bullet_texts):]:
+        shape._element.getparent().remove(shape._element)
+    group = group[: len(bullet_texts)]
+
     for i, shape in enumerate(group):
         tf = shape.text_frame
         para = tf.paragraphs[0]
-        if i < len(bullet_texts):
-            glyph, _ = _split_bullet_glyph(para.text)
-            new_text = f"{glyph}{bullet_texts[i]}" if glyph else bullet_texts[i]
-            if para.runs:
-                para.runs[0].text = new_text
-                for trailing_run in para.runs[1:]:
-                    trailing_run.text = ""
-            else:
-                para.add_run().text = new_text
+        glyph, _ = _split_bullet_glyph(para.text)
+        new_text = f"{glyph}{bullet_texts[i]}" if glyph else bullet_texts[i]
+        if para.runs:
+            para.runs[0].text = new_text
+            for trailing_run in para.runs[1:]:
+                trailing_run.text = ""
         else:
-            for r in para.runs:
-                r.text = ""
+            para.add_run().text = new_text
         for extra_para in tf.paragraphs[1:]:
             for r in extra_para.runs:
                 r.text = ""
@@ -347,16 +364,96 @@ def set_bullets(slide: Any, bullet_texts: list[str]) -> bool:
                 else:
                     # Add a run if there are none
                     paras[i].add_run().text = bullet_texts[i]
-            # Clear any remaining unfilled paragraphs
-            for i in range(len(bullet_texts), len(paras)):
-                for r in paras[i].runs:
-                    r.text = ""
+            # Remove any remaining unfilled paragraphs ENTIRELY rather than just
+            # blanking their run text. An empty <a:p> can still carry an explicit
+            # <a:buChar>/<a:buAutoNum> bullet-glyph definition in its <a:pPr> (inherited
+            # from the template's bullet-list style); some renderers draw that glyph
+            # even when the paragraph's text is empty, producing "phantom" bullet
+            # markers with no visible text next to them. Deleting the paragraph
+            # element outright removes the glyph along with it, independent of
+            # whichever renderer is used to open the file.
+            txBody = tf._txBody
+            for extra_para in paras[len(bullet_texts):]:
+                txBody.remove(extra_para._p)
             return True
 
     # Pattern B: one sibling shape per bullet.
     group = _find_bullet_shape_group(slide)
     if group:
         _fill_bullet_shape_group(slide, group, bullet_texts)
+        return True
+
+    return False
+
+
+def set_big_statement(slide: Any, text: str) -> bool:
+    """
+    Fill a single-bullet placeholder body as a BIG, BOLD, CENTRED statement instead of a
+    small bulleted line.
+
+    A one-bullet placeholder is typically small, left-aligned, and top-anchored,
+    occupying a fraction of the slide — dropping one long sentence into it verbatim
+    leaves most of the slide empty and reads as an afterthought rather than a deliberate
+    choice. Use this only for content that is genuinely meant to land as a single
+    pull-quote/thesis-statement, chosen deliberately — not as the default treatment for
+    "the source content happens to be one sentence" (a bulleted list, or a slide with an
+    added diagram, are usually the better fit; see the multi-point / diagram injection
+    paths for those).
+
+    Deliberately departs from the "never move shapes" rule: this pattern exists
+    specifically to override the cramped default box, resizing the body shape to a
+    generous, vertically-centred content area with large, bold, centred, bullet-free text.
+
+    Args:
+        slide: python-pptx Slide object.
+        text: The statement to render.
+
+    Returns:
+        True if a suitable placeholder was found and filled.
+    """
+    from pptx.util import Emu, Pt
+    from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        tf = shape.text_frame
+        paras = tf.paragraphs
+        whitespace_count = sum(1 for p in paras if not p.text.strip())
+        if len(paras) < 3 or whitespace_count < 3:
+            continue
+
+        p0 = paras[0]
+        if p0.runs:
+            p0.runs[0].text = text
+            for trailing_run in p0.runs[1:]:
+                trailing_run.text = ""
+            size = 30 if len(text) <= 90 else (26 if len(text) <= 160 else 22)
+            p0.runs[0].font.size = Pt(size)
+            p0.runs[0].font.bold = True
+        p0.alignment = PP_ALIGN.CENTER
+
+        # Strip any inherited bullet-glyph definition and force buNone, the same way
+        # set_bullets() removes unused paragraphs to avoid phantom glyphs above.
+        pPr = p0._p.find(f"{{{DRAWING_NS}}}pPr")
+        if pPr is None:
+            pPr = etree.SubElement(p0._p, f"{{{DRAWING_NS}}}pPr")
+            p0._p.insert(0, pPr)
+        for tag in ("buChar", "buAutoNum"):
+            el = pPr.find(f"{{{DRAWING_NS}}}{tag}")
+            if el is not None:
+                pPr.remove(el)
+        if pPr.find(f"{{{DRAWING_NS}}}buNone") is None:
+            etree.SubElement(pPr, f"{{{DRAWING_NS}}}buNone")
+
+        # Remove the placeholder's other now-unused paragraph slots entirely (same
+        # phantom-glyph reasoning as set_bullets()), then resize/recentre the box.
+        txBody = tf._txBody
+        for extra_para in paras[1:]:
+            txBody.remove(extra_para._p)
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        shape.left, shape.top = Emu(int(0.7 * 914400)), Emu(int(1.85 * 914400))
+        shape.width, shape.height = Emu(int(8.6 * 914400)), Emu(int(3.1 * 914400))
         return True
 
     return False
@@ -488,6 +585,16 @@ def sanitize_presentation(prs: Any) -> None:
 # unreadable, so we stop and log a warning instead.
 MIN_FONT_SIZE_PT = 8
 
+# Maximum amount (pt) we will ever shrink a run below the TEMPLATE's own
+# original size for that run, even if MIN_FONT_SIZE_PT would otherwise allow
+# more. A template's font sizes are a deliberate design choice; shrinking a
+# 28pt title down to 8pt to force-fit overlong content looks broken even
+# though it "fits" — past a point, cutting the content (or moving it to
+# another slide) is the right call, not shrinking further. Six points is
+# roughly the largest reduction that still reads as "the same slide, slightly
+# denser" rather than "a different, smaller typeface was used here."
+MAX_SHRINK_FROM_ORIGINAL_PT = 6
+
 # The heuristic: estimate how many characters fit in a text frame by comparing
 # total character count against an allowed capacity derived from the shape's
 # bounding box area and the current average font size.
@@ -617,7 +724,23 @@ def fit_text_to_shape_single(shape: Any) -> None:
     except Exception:
         pass
 
-    # Iteratively reduce font size until content fits or floor is hit
+    # Capture each run's ORIGINAL (template) size before any shrinking, so the
+    # per-run floor can be "no more than MAX_SHRINK_FROM_ORIGINAL_PT below
+    # whatever this run started at" — not just the absolute MIN_FONT_SIZE_PT.
+    runs_all = _collect_shape_runs(shape)
+    original_sizes = {id(r): _get_run_font_size_pt(r) for r in runs_all}
+    fallback_original = (
+        min(s for s in original_sizes.values() if s is not None)
+        if any(s is not None for s in original_sizes.values())
+        else 18.0
+    )
+
+    def _floor_for(run: Any) -> float:
+        original = original_sizes.get(id(run)) or fallback_original
+        return max(MIN_FONT_SIZE_PT, original - MAX_SHRINK_FROM_ORIGINAL_PT)
+
+    # Iteratively reduce font size until content fits, the absolute floor is
+    # hit, or every run has reached its own original-size-derived floor.
     iterations = 0
     max_iterations = 20
     while _estimate_text_overflow(shape) and iterations < max_iterations:
@@ -625,29 +748,39 @@ def fit_text_to_shape_single(shape: Any) -> None:
         if not runs:
             break
 
-        # Find the current minimum explicit size; fall back to 18pt
+        # Find the current minimum explicit size (fall back to 18pt), and the
+        # loosest of every run's own floor (so we stop once ALL runs are
+        # already at their individual floors, not just the global minimum).
         current_sizes = [_get_run_font_size_pt(r) for r in runs if _get_run_font_size_pt(r)]
         current_min = min(current_sizes) if current_sizes else 18.0
+        floors = [_floor_for(r) for r in runs]
+        loosest_floor = min(floors) if floors else MIN_FONT_SIZE_PT
 
-        if current_min <= MIN_FONT_SIZE_PT:
-            logger.warning(
-                "Shape '%s': text still overflows at minimum font size %dpt — "
-                "consider shortening the content.",
-                shape.name,
-                MIN_FONT_SIZE_PT,
-            )
+        if current_min <= loosest_floor:
+            if loosest_floor > MIN_FONT_SIZE_PT:
+                logger.warning(
+                    "Shape '%s': text still overflows, but every run has already "
+                    "been shrunk the maximum %dpt below its template size — "
+                    "consider shortening the content instead of shrinking further.",
+                    shape.name,
+                    MAX_SHRINK_FROM_ORIGINAL_PT,
+                )
+            else:
+                logger.warning(
+                    "Shape '%s': text still overflows at minimum font size %dpt — "
+                    "consider shortening the content.",
+                    shape.name,
+                    MIN_FONT_SIZE_PT,
+                )
             break
-
-        new_size = max(MIN_FONT_SIZE_PT, current_min - 2.0)
 
         for run in runs:
             existing = _get_run_font_size_pt(run)
-            # Only reduce runs that have an explicit size set, OR reduce all
-            # if no run has an explicit size (all inherited — set explicitly now)
+            floor = _floor_for(run)
             if existing is not None:
-                _set_run_font_size_pt(run, max(MIN_FONT_SIZE_PT, existing - 2.0))
+                _set_run_font_size_pt(run, max(floor, existing - 2.0))
             else:
-                _set_run_font_size_pt(run, new_size)
+                _set_run_font_size_pt(run, max(floor, current_min - 2.0))
 
         iterations += 1
 
@@ -853,6 +986,18 @@ class PPTXEngine:
                     "Slide %d: could not find bullet area (%d bullets)",
                     sdef.slide_number,
                     len(sdef.bullets),
+                )
+
+        # Apply a big, centred, bullet-free statement instead of a small bulleted
+        # line — for content that's a single deliberate pull-quote/thesis statement
+        # rather than a genuine list (see set_big_statement()'s docstring for when
+        # this is and isn't the right call).
+        if sdef.big_statement:
+            ok = set_big_statement(new_slide, sdef.big_statement)
+            if not ok:
+                logger.warning(
+                    "Slide %d: could not find a placeholder for big_statement",
+                    sdef.slide_number,
                 )
 
         # Apply structured items (cards, grid, etc.)

@@ -121,3 +121,177 @@ def test_validator_passes_on_good_output(engine, slide_plan, tmp_path):
     assert result.passed
     errors = [i for i in result.issues if i.severity == "error"]
     assert len(errors) == 0
+
+
+def test_fit_text_to_shape_never_shrinks_more_than_cap_below_original(tmp_path):
+    """Regression test: overflow auto-shrink must never take a run more than
+    MAX_SHRINK_FROM_ORIGINAL_PT below whatever size the template originally
+    used for it, even if the absolute MIN_FONT_SIZE_PT floor would otherwise
+    allow further reduction. A template's sizes are a deliberate design
+    choice — past a point, cutting content is the right call, not shrinking
+    a 28pt heading down toward 8pt to force an over-long paragraph to fit.
+    """
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from src.core.engines.pptx.engine import (
+        MAX_SHRINK_FROM_ORIGINAL_PT,
+        MIN_FONT_SIZE_PT,
+        fit_text_to_shape_single,
+    )
+
+    from pptx.enum.text import MSO_AUTO_SIZE
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank layout
+    box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+    tf = box.text_frame
+    # A fresh textbox defaults to SHAPE_TO_FIT_TEXT, which `fit_text_to_shape_single`
+    # deliberately skips (the template already handles that shape natively) --
+    # disable it so this test exercises the manual shrink-loop path, the same
+    # as a real fixed-size template placeholder would.
+    tf.auto_size = MSO_AUTO_SIZE.NONE
+    run = tf.paragraphs[0].add_run()
+    original_size = 20
+    run.font.size = Pt(original_size)
+    # Deliberately huge overflowing text so the loop would run to completion
+    # (hit `max_iterations`) rather than converge on its own — this is the
+    # scenario where an uncapped loop would walk the size all the way down to
+    # MIN_FONT_SIZE_PT.
+    run.text = "Overflowing filler text. " * 200
+
+    fit_text_to_shape_single(box)
+
+    final_size = run.font.size.pt
+    expected_floor = max(MIN_FONT_SIZE_PT, original_size - MAX_SHRINK_FROM_ORIGINAL_PT)
+    assert final_size >= expected_floor, (
+        f"run shrank to {final_size}pt, more than {MAX_SHRINK_FROM_ORIGINAL_PT}pt "
+        f"below its original {original_size}pt (floor should be {expected_floor}pt)"
+    )
+    # And it actually WAS engaged (proves the test scenario really overflowed
+    # and the cap is what stopped it, not a no-op).
+    assert final_size < original_size
+
+
+def test_duplicate_slide_preserves_relationship_ids():
+    """Regression test for a real, confirmed defect: cloning a slide whose XML
+    has more than one relationship (e.g. a picture placeholder's image rel
+    plus the slide's slideLayout rel) previously used `get_or_add()` to copy
+    relationships onto the new slide part, which mints a FRESH rId for each
+    one rather than preserving the original. The deep-copied slide XML still
+    has its original hardcoded `r:embed="rIdN"` reference, so if the new
+    part's relationships get renumbered, that reference now points at the
+    WRONG relationship (e.g. the slideLayout rel instead of the image rel) --
+    the picture then fails to resolve and silently falls back to its
+    solid-fill placeholder colour, rendering as a plain grey panel instead of
+    the real image. `duplicate_slide()` must preserve each relationship's
+    exact original rId.
+    """
+    if not TEMPLATE_PATH.exists():
+        pytest.skip("Template not available")
+    from pptx import Presentation
+    from src.core.engines.pptx.engine import duplicate_slide
+
+    prs = Presentation(str(TEMPLATE_PATH))
+
+    # Find a bank slide with 2+ relationships (a picture placeholder plus its
+    # slideLayout rel is the real-world case that exposed this bug).
+    source_index = None
+    for i, slide in enumerate(prs.slides):
+        if len(slide.part.rels) >= 2:
+            source_index = i
+            break
+    if source_index is None:
+        pytest.skip("no multi-relationship bank slide in the shared test template")
+
+    original_rel_map = {
+        rid: (rel.reltype, str(rel.target_partname) if not rel.is_external else rel.target_ref)
+        for rid, rel in prs.slides[source_index].part.rels.items()
+    }
+
+    new_slide = duplicate_slide(prs, source_index)
+    new_rel_map = {
+        rid: (rel.reltype, str(rel.target_partname) if not rel.is_external else rel.target_ref)
+        for rid, rel in new_slide.part.rels.items()
+    }
+
+    assert new_rel_map == original_rel_map, (
+        "duplicate_slide() must preserve every relationship's exact original "
+        "rId -> (reltype, target); a renumbered rId breaks any hardcoded "
+        "r:embed reference still present in the cloned slide XML.\n"
+        f"original: {original_rel_map}\ngot:      {new_rel_map}"
+    )
+
+
+def test_set_bullets_removes_unused_paragraphs():
+    """Regression test for the "phantom bullet" bug: a multi-paragraph bullet
+    placeholder (the common "Rectangle 4"-style Multi Point template pattern)
+    has more paragraph slots than the caller supplies bullets for. Unused
+    paragraphs must be REMOVED from the XML entirely, not just have their run
+    text blanked — an empty <a:p> can still carry an explicit <a:buChar>
+    bullet-glyph definition in its <a:pPr> (inherited from the template's list
+    style), which some renderers draw even with no text, producing a bullet
+    marker with nothing next to it. This was a real, reported defect.
+    """
+    if not TEMPLATE_PATH.exists():
+        pytest.skip("Template not available")
+    from pptx import Presentation
+    from src.core.engines.pptx.engine import duplicate_slide, set_bullets
+
+    prs = Presentation(str(TEMPLATE_PATH))
+    # Slide index 3 in the shared test template is the Multi Point bank slide:
+    # a single "Rectangle 4" text frame with 12 mostly-whitespace paragraphs,
+    # several of which carry an explicit bullet-glyph pPr (buChar/buNone).
+    slide = duplicate_slide(prs, 3)
+    ok = set_bullets(slide, ["Only two bullets here", "Second bullet, rest removed"])
+    assert ok
+
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        paras = shape.text_frame.paragraphs
+        if len(paras) < 2:
+            continue
+        texts = [p.text for p in paras]
+        if texts[:2] != ["Only two bullets here", "Second bullet, rest removed"]:
+            continue
+        # This is the bullet box `set_bullets` filled — it must have EXACTLY
+        # two paragraphs left, not two filled ones followed by leftover blanks.
+        assert len(paras) == 2, (
+            f"expected the unused paragraph slots to be removed, found "
+            f"{len(paras)} paragraphs total: {texts!r}"
+        )
+        return
+    pytest.fail("could not locate the bullet box that set_bullets filled")
+
+
+def test_set_big_statement_centers_text_and_removes_bullet_glyph():
+    """set_big_statement() must turn a small one-bullet placeholder into a single,
+    bold, centred, bullet-free paragraph with the other paragraph slots removed
+    entirely (same phantom-glyph reasoning as set_bullets()) — not just place the
+    text in the first paragraph and leave the box's small default size/position.
+    """
+    if not TEMPLATE_PATH.exists():
+        pytest.skip("Template not available")
+    from pptx import Presentation
+    from pptx.enum.text import MSO_ANCHOR
+    from src.core.engines.pptx.engine import duplicate_slide, set_big_statement
+
+    prs = Presentation(str(TEMPLATE_PATH))
+    # Slide index 2 in the shared test template is the Single Point bank slide:
+    # a "Rectangle 4" text frame with 4 mostly-whitespace paragraphs.
+    slide = duplicate_slide(prs, 2)
+    statement = "A single statement that should dominate the slide, not hide in a corner"
+    ok = set_big_statement(slide, statement)
+    assert ok
+
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        paras = shape.text_frame.paragraphs
+        if len(paras) != 1 or paras[0].text != statement:
+            continue
+        run = paras[0].runs[0]
+        assert run.font.bold is True
+        assert shape.text_frame.vertical_anchor == MSO_ANCHOR.MIDDLE
+        return
+    pytest.fail("could not locate the placeholder that set_big_statement filled")

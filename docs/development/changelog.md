@@ -4,6 +4,132 @@ All changes are recorded here with timestamps. Append-only.
 
 ---
 
+## [0.5.0] — 2026-07-19
+
+### Added — `set_big_statement()` for Single-Bullet "Pull-Quote" Slides
+
+A one-bullet placeholder (`SlideDefinition.template_index == 2`-style Single Point
+pattern) is small, left-aligned, and top-anchored by default — dropping one long sentence
+into it verbatim leaves most of the slide empty and reads as an afterthought rather than a
+deliberate choice (real feedback from a course-deck review, 2026-07-19: several slides
+built this way looked broken/unfinished).
+
+`set_big_statement(slide, text)` (`src/core/engines/pptx/engine.py`) fills that same
+placeholder as a large (22-30pt, tiered by text length), bold, centred, bullet-free
+statement instead — a deliberate, scoped exception to "never move shapes," used only for
+this one pattern: the body shape is resized/recentred to a generous content area and the
+placeholder's inherited bullet-glyph definition (`buChar`/`buAutoNum`) is stripped and
+replaced with `buNone`, the same phantom-glyph cleanup `set_bullets()` already does for
+unused paragraph slots.
+
+Wired into the render pipeline via a new `SlideDefinition.big_statement: str` field
+(`src/core/models.py`) — when set, the engine calls `set_big_statement()` automatically,
+the same way `bullets` triggers `set_bullets()`. New regression test:
+`test_set_big_statement_centers_text_and_removes_bullet_glyph`.
+
+### Documentation — Diagram Legibility, Structural Auditing, and Label-Overlap Guidance
+
+`md2office-rules.md` §§1.10.10-1.10.14 (and its `.cursor/rules/` mirror) now cover lessons
+from a real full-course diagram/slide review pass (2026-07-19):
+
+- Audit slide plans by inspecting the actual resolved `SlideDefinition` objects
+  (`template_index`, `len(bullets)`, `diagram_path`, `big_statement`), never by grepping
+  human-readable labels in markdown source — inconsistent labelling across authoring
+  passes silently defeats a label-text audit.
+- `definition`-style one-liner slides are for genuine `term: definition` pairs, not prose —
+  an average line length above ~70 characters is the signal to double-check by hand.
+- Diagram/injected-image text must be legible **after** the scale-down a wide source
+  canvas undergoes to fit the slide's content area, not just legible in isolation at native
+  resolution — verify on the full-resolution rendered slide image, never a thumbnail
+  montage alone.
+- Two concrete label-overlap fixes for after a legibility edit: widen the gap between
+  connected shapes (or move a label off a connector into a free-standing text element) when
+  an auto-generated connector label fully covers a short line; add an explicit offset (or
+  wrap instead of widen) when enlarging text causes adjacent parallel labels to collide.
+- All of the above are now listed as mandatory steps of the final PPTX-deliverable review,
+  not optional follow-up.
+
+---
+
+## [0.4.2] — 2026-07-19
+
+### Fixed — `duplicate_slide()` Silently Dropping Cloned Images (Wrong-Relationship-ID Bug)
+
+**The most significant fix in this release.** `duplicate_slide()` copied a source
+slide's relationships onto the new slide part using `new_part.rels.get_or_add(rel.reltype,
+rel._target)`. `get_or_add()` mints a **fresh** rId for each relationship rather than
+preserving the original one. The deep-copied slide XML, however, still contains its
+original hardcoded references (e.g. `<a:blip r:embed="rId2">` inside a picture
+placeholder) — if the new part's relationships get renumbered relative to the original
+(which happens whenever a slide has 2+ relationships, e.g. an image rel plus the
+slideLayout rel, and is a near-coin-flip depending on the two relationships' order in the
+source file), that `r:embed` reference now resolves to the WRONG relationship — often the
+slideLayout instead of the image. The picture then fails to load and the shape silently
+falls back to its own solid-fill placeholder colour, rendering as a plain grey/blank panel
+where a real image should be, with no error or warning anywhere in the pipeline.
+
+This was found by direct visual inspection (not caught by any prior automated check) on a
+real EC-Council course template's "Excellence Grid" bank slide, whose picture placeholder
+has exactly this two-relationship shape. Confirmed non-deterministic: the same bug,
+present in the library the whole time, rendered correctly on one sibling course's
+already-built deck (lucky relationship ordering in that particular source file) and
+visibly broken on another's — so a deck "looking fine" in one visual spot-check is not
+proof this bug didn't affect a different slide, or a different template file, elsewhere.
+
+**Fix**: relationships are now copied by directly inserting a `_Relationship` object into
+`new_part.rels._rels` keyed by the **original** rId, preserving the exact
+rId → (reltype, target) mapping the cloned XML expects. Regression test:
+`test_duplicate_slide_preserves_relationship_ids` (constructs the same shape as the real
+bug — clones a bank slide with 2+ relationships and asserts every rId/reltype/target
+survives the clone unchanged).
+
+**If you have existing decks built with this library before 2026-07-19**, any deck that
+used a cloned slide with more than one relationship (most commonly: any slide type with a
+picture placeholder, since those always have an image rel *and* a layout rel) may have a
+blank/grey panel where an image should be. This is not something re-running validation
+catches — it requires an actual visual (LibreOffice → PDF → PNG, or open in PowerPoint)
+re-check of any deck built before this fix.
+
+### Fixed — Phantom Bullet Markers and Uncapped Overflow Shrink
+
+**`set_bullets()` no longer leaves phantom bullet markers (`src/core/engines/pptx/engine.py`):**
+- Real, reported defect: when a caller supplies fewer bullets than a template's
+  multi-paragraph bullet box has paragraph slots (the common "12 paragraphs,
+  fill the first N" Multi Point pattern), the unused paragraphs previously had
+  only their run text blanked, not the paragraph itself removed. An empty
+  `<a:p>` can still carry an explicit `<a:buChar>`/`<a:buAutoNum>` bullet-glyph
+  definition in its `<a:pPr>`, inherited from the template's list style — some
+  renderers draw that glyph even with no text next to it, producing bullet
+  markers with nothing in them. Fixed by removing the unused paragraph (or, for
+  the sibling-shape-per-bullet pattern, the unused shape) from the XML entirely
+  once bullets are assigned, rather than leaving an empty-but-still-bulleted
+  slot behind. Regression test: `test_set_bullets_removes_unused_paragraphs`.
+
+**Overflow auto-shrink now respects a per-run cap relative to the template's own size (`fit_text_to_shape_single`):**
+- Previously, `fit_text_to_shape_single` shrank overflowing text down to a
+  single absolute floor (`MIN_FONT_SIZE_PT = 8`) regardless of the template's
+  original size for that run — a 28pt heading could end up shrunk all the way
+  to 8pt to force an over-long paragraph to fit, which reads as "a different,
+  smaller typeface was used here" rather than "the same slide, slightly
+  denser." Added `MAX_SHRINK_FROM_ORIGINAL_PT = 6`: each run now has its own
+  floor of `max(MIN_FONT_SIZE_PT, its_own_original_size - 6)`, captured before
+  any shrinking begins. Past that point the loop stops and logs a warning
+  recommending the content be shortened instead of shrunk further. Regression
+  test: `test_fit_text_to_shape_never_shrinks_more_than_cap_below_original`.
+
+### Documentation
+- Added slide-authoring guidance to `docs/development/template-layout-analysis.md`
+  (or successor rule docs) on: never repeating the same `template_index` more
+  than twice consecutively across a deck (engagement/variety), preferring
+  transparent-background diagram exports (`drawio --export --transparent`)
+  with a bordered fallback when transparency isn't achievable, a "definition
+  slide" pattern (one-liner text with no bullet glyph, diagram placed below),
+  and a mandatory per-slide pre-planning pass (pick `template_index`, draft
+  the exact text, decide whether an image/diagram is needed, decide whether
+  content is tabular) before any slide is actually built.
+
+---
+
 ## [0.4.1] — 2026-06-08
 
 ### Added — PPTX Overflow Handling + LLM Spreadsheet Reorganizer
