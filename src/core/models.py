@@ -107,6 +107,8 @@ class SlideDefinition:
     bullets: list[str] = field(default_factory=list)
     items: dict[str, str] = field(default_factory=dict)
     diagram_path: str = ""
+    image_path: str = ""
+    big_statement: str = ""
 
 
 @dataclass
@@ -114,6 +116,7 @@ class SlidePlan:
     """Complete slide plan output by the ContentPlanner."""
     title: str
     slides: list[SlideDefinition] = field(default_factory=list)
+    notes: str = ""
 
 
 @dataclass

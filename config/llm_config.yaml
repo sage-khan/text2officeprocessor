@@ -2,7 +2,7 @@ default_provider: ollama
 providers:
   ollama:
     base_url: http://localhost:11434
-    model: llama3.1:8b
+    model: llama3.2:1b
     timeout_seconds: 120
   vllm:
     base_url: http://localhost:8000/v1

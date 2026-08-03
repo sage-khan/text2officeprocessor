@@ -29,7 +29,8 @@ outputs/
 # IDE
 .idea/
 .vscode/
-.windsurf/
+.claude/settings.local.json
+.devin/
 .cursor/
 .agent/
 .gemini/

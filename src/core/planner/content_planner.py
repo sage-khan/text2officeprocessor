@@ -260,6 +260,7 @@ class ContentPlanner:
                     "bullets": [],
                     "items": {},
                     "diagram_path": "",
+                    "image_path": "",
                 }
                 in_bullets = False
                 continue
@@ -296,6 +297,15 @@ class ContentPlanner:
                 in_bullets = False
                 continue
 
+            # Photo/illustration path: - image: "path/to/photo.jpg"
+            # (injected into the slide's image placeholder, cropped to fit —
+            # distinct from `diagram`, which is centred on the slide as-is)
+            m = re.match(r'^- image: "(.+?)"$', line)
+            if m:
+                current["image_path"] = m.group(1)
+                in_bullets = False
+                continue
+
             # Card / item key-value: - card_N_title: "..." or - item_N_body: "..."
             m = re.match(r'^- (card_\d+_\w+|item_\d+_\w+|item_\d\d_\w+): "(.+?)"$', line)
             if m:
@@ -328,16 +338,44 @@ class ContentPlanner:
     # XLSX planning
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def plan_spreadsheet(document: ParsedDocument) -> SpreadsheetPlan:
+    @classmethod
+    def plan_spreadsheet(
+        cls,
+        document: ParsedDocument,
+        llm_provider: Any | None = None,
+    ) -> SpreadsheetPlan:
         """
         Build a SpreadsheetPlan from a ParsedDocument.
 
-        Rules:
-        - Each top-level section becomes a sheet.
-        - Tables within sections become rows.
-        - Bullet lists become single-column rows.
+        If llm_provider is available, uses LLM-powered reorganization to create
+        logical consolidated sheets (Dashboard, Regional Breakdown, etc.).
+        Otherwise falls back to section-per-sheet mapping.
+
+        Args:
+            document: The parsed document with sections and content.
+            llm_provider: Optional LLMProvider for intelligent reorganization.
+
+        Returns:
+            SpreadsheetPlan with consolidated or raw sheets.
         """
+        # Try LLM reorganizer if provider available
+        if llm_provider is not None:
+            try:
+                from src.core.planner.spreadsheet_reorganizer import (
+                    create_reorganizer,
+                )
+
+                # No explicit config_path: create_reorganizer() resolves the
+                # rules YAML via config_loader (repo-local, then bundled).
+                reorganizer = create_reorganizer(provider=llm_provider)
+                return reorganizer.reorganize(document)
+            except Exception as exc:
+                logger.warning(
+                    "LLM spreadsheet reorganization failed (%s), using fallback",
+                    exc,
+                )
+
+        # Fallback: section-per-sheet mapping
         sheets: list[SheetDefinition] = []
 
         for section in document.sections:
@@ -377,4 +415,5 @@ def _dict_to_slide_def(data: dict) -> SlideDefinition:
         bullets=data["bullets"],
         items=data["items"],
         diagram_path=data.get("diagram_path", ""),
+        image_path=data.get("image_path", ""),
     )

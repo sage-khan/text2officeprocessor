@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
@@ -110,6 +110,10 @@ def convert(
         None, "--config", "-c",
         help="Path to a custom rules YAML file (overrides config/default_rules.yaml).",
     ),
+    overflow_strategy: Optional[str] = typer.Option(
+        None, "--overflow-strategy",
+        help="PPTX overflow handling: summarize (LLM condense) | split (multi-slide) | shrink (font reduce) | auto (LLM decides).",
+    ),
     log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
 ) -> None:
     """Convert an input document to PPTX, DOCX, or XLSX."""
@@ -143,7 +147,7 @@ def convert(
 
     try:
         if output_type == OutputFormat.PPTX:
-            _run_pptx(input_file, slides_md, resolved_template, output, provider, validate, config, logger, llm_validator)
+            _run_pptx(input_file, slides_md, resolved_template, output, provider, validate, config, logger, llm_validator, overflow_strategy)
         elif output_type == OutputFormat.DOCX:
             _run_docx(input_file, resolved_template, output, provider, validate, config, logger, llm_validator)
         elif output_type == OutputFormat.XLSX:
@@ -167,6 +171,7 @@ def _run_pptx(
     config: Optional[Path],
     logger: logging.Logger,
     llm_validator=None,
+    overflow_strategy: Optional[str] = None,
 ) -> None:
     from src.core.llm.normalizer import LLMNormalizer
 
@@ -194,7 +199,12 @@ def _run_pptx(
         raise typer.Exit(code=1)
 
     typer.echo(f"  Slides to render: {len(plan.slides)}")
-    engine = PPTXEngine()
+
+    # Content fitting for overflow handling
+    engine = PPTXEngine(
+        overflow_strategy=overflow_strategy,
+        llm_provider=provider,
+    )
     result_path = engine.render(plan, template, output)
     typer.echo(f"  Output written: {result_path}")
 
@@ -261,7 +271,9 @@ def _run_xlsx(
 
     preprocessor = InputPreprocessor()
     parsed = preprocessor.parse(input_file)
-    plan = ContentPlanner.plan_spreadsheet(parsed)
+
+    # Use LLM reorganizer if provider available for better sheet consolidation
+    plan = ContentPlanner.plan_spreadsheet(parsed, llm_provider=provider)
 
     typer.echo(f"  Sheets to render: {len(plan.sheets)}")
     engine = XLSXEngine()
@@ -279,12 +291,78 @@ def _run_xlsx(
         ProgrammaticValidator().print_report(llm_result)
 
 
+def _classify_slide_structure(slide: Any) -> dict[str, Any]:
+    """
+    Inspect a template slide's shapes and produce structural signals an LLM
+    (or human) can use to decide which markdown slide_type belongs here.
+
+    Returns a dict with shape counts, detected groupings, and a best-guess
+    slide_type label (the guess is heuristic — always show the raw signals
+    too so the LLM can override it).
+    """
+    from src.core.engines.pptx.engine import _find_bullet_shape_group
+
+    text_shapes = [s for s in slide.shapes if s.has_text_frame and s.text_frame.text.strip()]
+    picture_shapes = [s for s in slide.shapes if s.shape_type == 13]  # MSO_SHAPE_TYPE.PICTURE
+
+    bullet_group = _find_bullet_shape_group(slide)
+    bullet_group_size = len(bullet_group) if bullet_group else 0
+
+    # Pattern-A bullets: a single shape with several mostly-empty paragraphs.
+    pattern_a_bullets = 0
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        paras = shape.text_frame.paragraphs
+        whitespace_count = sum(1 for p in paras if not p.text.strip())
+        if len(paras) >= 3 and whitespace_count >= 3:
+            pattern_a_bullets = len(paras)
+            break
+
+    # Repeated short title/body shape pairs ⇒ card-grid layouts
+    # (Key Highlights, Features, Benefits, Excellence Grid).
+    short_text_shapes = [s for s in text_shapes if len(s.text_frame.text.strip()) <= 80]
+    card_like_count = len(short_text_shapes)
+
+    signals = {
+        "shape_count": len(list(slide.shapes)),
+        "text_shape_count": len(text_shapes),
+        "picture_count": len(picture_shapes),
+        "bullet_group_shapes": bullet_group_size,
+        "pattern_a_bullet_paragraphs": pattern_a_bullets,
+        "short_text_shapes": card_like_count,
+    }
+
+    # Heuristic best-guess — purely advisory, the LLM should weigh the raw
+    # signals (and the printed shape text) rather than trust this blindly.
+    if bullet_group_size >= 2 or pattern_a_bullets >= 3:
+        guess = "bullets"
+    elif picture_shapes and len(text_shapes) <= 2:
+        guess = "diagram"
+    elif card_like_count >= 5:
+        guess = "features_or_benefits"
+    elif card_like_count == 4:
+        guess = "key_highlights"
+    elif card_like_count == 3:
+        guess = "grid"
+    elif len(text_shapes) <= 2 and any(len(s.text_frame.text.strip()) < 40 for s in text_shapes):
+        guess = "section_header_or_single_point"
+    else:
+        guess = "unknown"
+
+    signals["guessed_slide_type"] = guess
+    return signals
+
+
 @app.command("analyze")
 def analyze(
     template: Path = typer.Argument(..., help="Template .pptx file to analyze."),
     log_level: str = typer.Option("info", "--log-level", help="Logging level."),
 ) -> None:
-    """Analyze a PPTX template: list all slides, shapes, and text runs."""
+    """Analyze a PPTX template: list every slide's full shape text plus a
+    structural manifest so an LLM can decide which slide_type maps to which
+    template_index for THIS template (the bundled DEFAULT_TEMPLATE_MAP only
+    applies to the bundled generic template bank)."""
     _setup_logging(log_level)
 
     if not template.exists():
@@ -301,17 +379,53 @@ def analyze(
     typer.echo(f"\nTemplate: {template.name}")
     typer.echo(f"Total slides: {len(prs.slides)}\n")
 
+    manifest: list[dict[str, Any]] = []
+
     for i, slide in enumerate(prs.slides):
-        typer.echo(f"=== SLIDE {i} (layout: {slide.slide_layout.name}) ===")
+        layout_name = slide.slide_layout.name
+        typer.echo(f"=== SLIDE {i} (layout: {layout_name}) ===")
         for j, shape in enumerate(slide.shapes):
-            if shape.has_text_frame:
-                for k, para in enumerate(shape.text_frame.paragraphs):
-                    for r, run in enumerate(para.runs):
-                        if run.text.strip():
-                            typer.echo(
-                                f'  Shape {j} "{shape.name}" para[{k}] run[{r}]: {repr(run.text)}'
-                            )
+            if not shape.has_text_frame:
+                continue
+            full_text = shape.text_frame.text
+            if not full_text.strip():
+                continue
+            run_count = sum(len(p.runs) for p in shape.text_frame.paragraphs)
+            multi_run = " [spans multiple runs/paragraphs]" if run_count > 1 else ""
+            typer.echo(f'  Shape {j} "{shape.name}": {repr(full_text)}{multi_run}')
+        signals = _classify_slide_structure(slide)
+        typer.echo(
+            f"  → structure: {signals['text_shape_count']} text shape(s), "
+            f"{signals['picture_count']} picture(s), "
+            f"bullet-group={signals['bullet_group_shapes']}, "
+            f"pattern-A bullets={signals['pattern_a_bullet_paragraphs']}, "
+            f"short text shapes={signals['short_text_shapes']}"
+        )
+        typer.echo(f"  → guessed slide_type: {signals['guessed_slide_type']} (advisory — verify against shape text above)")
         typer.echo("")
+        manifest.append({
+            "template_index": i,
+            "layout": layout_name,
+            **signals,
+        })
+
+    typer.echo("=== SLIDE-TYPE MANIFEST (for LLM slide-placement decisions) ===")
+    typer.echo(
+        "Use this table to pick a template_index for each markdown slide based on "
+        "its content type. The 'guess' column is heuristic — cross-check it against "
+        "the full shape text printed above before relying on it.\n"
+    )
+    typer.echo(f"{'idx':<5}{'layout':<16}{'guess':<32}{'bullets':<10}{'cards':<8}{'pics':<6}")
+    for entry in manifest:
+        typer.echo(
+            f"{entry['template_index']:<5}"
+            f"{entry['layout'][:14]:<16}"
+            f"{entry['guessed_slide_type'][:30]:<32}"
+            f"{max(entry['bullet_group_shapes'], entry['pattern_a_bullet_paragraphs']):<10}"
+            f"{entry['short_text_shapes']:<8}"
+            f"{entry['picture_count']:<6}"
+        )
+    typer.echo("")
 
 
 @app.command("batch")
@@ -642,6 +756,156 @@ def list_templates() -> None:
 
     if not found_any:
         typer.echo("  No bundled templates found. Run: python scripts/create_bundled_templates.py")
+
+
+@app.command("extract-styles")
+def extract_styles_cmd(
+    template: Path = typer.Argument(..., exists=True, readable=True, help="Path to .docx or .pptx template."),
+    output: Path = typer.Option(..., "--output", "-o", help="Output JSON file path."),
+) -> None:
+    """Extract the complete visual identity from a template into a JSON style sheet."""
+    from src.core.extraction.style_extractor import extract_styles
+    try:
+        stylesheet = extract_styles(template)
+        stylesheet.save(output)
+        style_count = len(stylesheet.styles) if stylesheet.styles else len(stylesheet.slide_layouts)
+        typer.echo(f"  Extracted {style_count} styles/layouts → {output}")
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("extract")
+def extract_cmd(
+    source: Path = typer.Argument(..., exists=True, readable=True, help="Path to .docx, .pptx, or .xlsx file."),
+    output_dir: Path = typer.Option(..., "--output", "-o", help="Output directory for extracted files."),
+    no_styles: bool = typer.Option(False, "--no-styles", help="Skip style extraction."),
+    no_media: bool = typer.Option(False, "--no-media", help="Skip media extraction."),
+) -> None:
+    """Extract content, styles, and media from an Office file into Markdown."""
+    from src.core.extraction.content_extractor import extract_content
+    try:
+        content_path = extract_content(
+            source, output_dir,
+            extract_styles=not no_styles,
+            extract_media=not no_media,
+        )
+        typer.echo(f"  Content → {content_path}")
+        if not no_styles:
+            suffix = source.suffix.lower()
+            styles_name = "pptx_styles.json" if suffix == ".pptx" else "styles.json"
+            sp = output_dir / styles_name
+            if sp.exists():
+                typer.echo(f"  Styles  → {sp}")
+        media_dir = output_dir / "media"
+        if media_dir.exists() and any(media_dir.iterdir()):
+            count = sum(1 for _ in media_dir.iterdir())
+            typer.echo(f"  Media   → {media_dir}/ ({count} files)")
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("diff-styles")
+def diff_styles_cmd(
+    before: Path = typer.Argument(..., exists=True, readable=True, help="First styles.json file."),
+    after: Path = typer.Argument(..., exists=True, readable=True, help="Second styles.json file."),
+) -> None:
+    """Compare two extracted style sheets and show differences."""
+    import json as _json
+    try:
+        a = _json.loads(before.read_text(encoding="utf-8"))
+        b = _json.loads(after.read_text(encoding="utf-8"))
+
+        a_styles = {s["style_id"]: s for s in a.get("styles", [])}
+        b_styles = {s["style_id"]: s for s in b.get("styles", [])}
+
+        added = set(b_styles) - set(a_styles)
+        removed = set(a_styles) - set(b_styles)
+        common = set(a_styles) & set(b_styles)
+
+        changes_found = False
+        for sid in sorted(added):
+            typer.echo(f"ADDED    {sid} ({b_styles[sid].get('name', '')})")
+            changes_found = True
+        for sid in sorted(removed):
+            typer.echo(f"REMOVED  {sid} ({a_styles[sid].get('name', '')})")
+            changes_found = True
+        for sid in sorted(common):
+            if a_styles[sid] != b_styles[sid]:
+                typer.echo(f"CHANGED  {sid}")
+                _diff_dict(a_styles[sid], b_styles[sid], prefix="  ")
+                changes_found = True
+
+        if not changes_found:
+            typer.echo("No style differences found.")
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+def _diff_dict(a: dict, b: dict, prefix: str = "") -> None:
+    """Print key-level differences between two dicts."""
+    all_keys = sorted(set(list(a.keys()) + list(b.keys())))
+    for key in all_keys:
+        va, vb = a.get(key), b.get(key)
+        if va != vb:
+            typer.echo(f"{prefix}{key}: {va!r} → {vb!r}")
+
+
+@app.command("analyze-template")
+def analyze_template_cmd(
+    template: Path = typer.Argument(..., exists=True, readable=True, help="Path to .docx or .pptx template."),
+) -> None:
+    """Print a summary of a template's styles, layouts, and fonts."""
+    from src.core.extraction.style_extractor import extract_styles
+    try:
+        ss = extract_styles(template)
+        typer.echo(f"\n  Template: {ss.source_file}")
+        typer.echo(f"  Format:   {ss.format.upper()}")
+        typer.echo(f"  Theme:    major={ss.theme.major_font or 'n/a'}  minor={ss.theme.minor_font or 'n/a'}")
+        typer.echo(f"  Colors:   {len(ss.theme.colors)} theme colors")
+
+        if ss.format == "docx":
+            typer.echo(f"  Styles:   {len(ss.styles)}")
+            typer.echo(f"  Numbering: {len(ss.numbering_defs)} definitions")
+            if ss.section_properties:
+                sp = ss.section_properties
+                typer.echo(f"  Page:     {sp.page_width_pt:.0f}x{sp.page_height_pt:.0f}pt ({sp.orientation})")
+                typer.echo(f"  Margins:  L={sp.margin_left_pt:.0f} R={sp.margin_right_pt:.0f} T={sp.margin_top_pt:.0f} B={sp.margin_bottom_pt:.0f}")
+            # Show key paragraph styles
+            para_styles = [s for s in ss.styles if s.style_type == "paragraph"]
+            typer.echo(f"\n  Paragraph styles ({len(para_styles)}):")
+            for s in para_styles[:20]:
+                font_info = ""
+                if s.font:
+                    parts = []
+                    if s.font.name:
+                        parts.append(s.font.name)
+                    if s.font.size_pt:
+                        parts.append(f"{s.font.size_pt}pt")
+                    if s.font.bold:
+                        parts.append("bold")
+                    if s.font.color:
+                        parts.append(s.font.color)
+                    font_info = " — " + ", ".join(parts) if parts else ""
+                typer.echo(f"    {s.style_id}: {s.name}{font_info}")
+
+        elif ss.format == "pptx":
+            typer.echo(f"  Slides:   {len(ss.slide_layouts)}")
+            w_in = ss.slide_width_emu / 914400
+            h_in = ss.slide_height_emu / 914400
+            typer.echo(f"  Size:     {w_in:.1f}\" x {h_in:.1f}\"")
+            typer.echo(f"\n  Slide layouts:")
+            for layout in ss.slide_layouts:
+                typer.echo(f"    [{layout.index}] {layout.name} — {len(layout.placeholders)} shapes")
+                for ph in layout.placeholders[:5]:
+                    typer.echo(f"        {ph.name}: {ph.type} ({ph.width_pt:.0f}x{ph.height_pt:.0f}pt)")
+
+        typer.echo("")
+    except Exception as exc:
+        typer.echo(f"[ERROR] {exc}", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command("serve")
