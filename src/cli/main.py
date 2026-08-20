@@ -296,61 +296,15 @@ def _classify_slide_structure(slide: Any) -> dict[str, Any]:
     Inspect a template slide's shapes and produce structural signals an LLM
     (or human) can use to decide which markdown slide_type belongs here.
 
-    Returns a dict with shape counts, detected groupings, and a best-guess
-    slide_type label (the guess is heuristic — always show the raw signals
-    too so the LLM can override it).
+    Thin wrapper around `src.core.analysis.structural.classify_pptx_slide_structure`
+    (the same structural pass the layout-manifest system uses) so the two
+    never drift apart; renames its `guessed_content_affinity` key to this
+    command's pre-existing `guessed_slide_type` for output compatibility.
     """
-    from src.core.engines.pptx.engine import _find_bullet_shape_group
+    from src.core.analysis.structural import classify_pptx_slide_structure
 
-    text_shapes = [s for s in slide.shapes if s.has_text_frame and s.text_frame.text.strip()]
-    picture_shapes = [s for s in slide.shapes if s.shape_type == 13]  # MSO_SHAPE_TYPE.PICTURE
-
-    bullet_group = _find_bullet_shape_group(slide)
-    bullet_group_size = len(bullet_group) if bullet_group else 0
-
-    # Pattern-A bullets: a single shape with several mostly-empty paragraphs.
-    pattern_a_bullets = 0
-    for shape in slide.shapes:
-        if not shape.has_text_frame:
-            continue
-        paras = shape.text_frame.paragraphs
-        whitespace_count = sum(1 for p in paras if not p.text.strip())
-        if len(paras) >= 3 and whitespace_count >= 3:
-            pattern_a_bullets = len(paras)
-            break
-
-    # Repeated short title/body shape pairs ⇒ card-grid layouts
-    # (Key Highlights, Features, Benefits, Excellence Grid).
-    short_text_shapes = [s for s in text_shapes if len(s.text_frame.text.strip()) <= 80]
-    card_like_count = len(short_text_shapes)
-
-    signals = {
-        "shape_count": len(list(slide.shapes)),
-        "text_shape_count": len(text_shapes),
-        "picture_count": len(picture_shapes),
-        "bullet_group_shapes": bullet_group_size,
-        "pattern_a_bullet_paragraphs": pattern_a_bullets,
-        "short_text_shapes": card_like_count,
-    }
-
-    # Heuristic best-guess — purely advisory, the LLM should weigh the raw
-    # signals (and the printed shape text) rather than trust this blindly.
-    if bullet_group_size >= 2 or pattern_a_bullets >= 3:
-        guess = "bullets"
-    elif picture_shapes and len(text_shapes) <= 2:
-        guess = "diagram"
-    elif card_like_count >= 5:
-        guess = "features_or_benefits"
-    elif card_like_count == 4:
-        guess = "key_highlights"
-    elif card_like_count == 3:
-        guess = "grid"
-    elif len(text_shapes) <= 2 and any(len(s.text_frame.text.strip()) < 40 for s in text_shapes):
-        guess = "section_header_or_single_point"
-    else:
-        guess = "unknown"
-
-    signals["guessed_slide_type"] = guess
+    signals = classify_pptx_slide_structure(slide)
+    signals["guessed_slide_type"] = signals.pop("guessed_content_affinity")
     return signals
 
 
@@ -853,11 +807,88 @@ def _diff_dict(a: dict, b: dict, prefix: str = "") -> None:
             typer.echo(f"{prefix}{key}: {va!r} → {vb!r}")
 
 
+def _generate_manifest_cmd(
+    template: Path, manifest_out: Path, llm_provider: Optional[str], llm_model: Optional[str],
+) -> None:
+    """Generate a layout manifest for `template` (structural pass, plus an
+    LLM classification pass if a provider resolves and is reachable) and
+    write it to exactly the path the caller asked for — deliberately calls
+    `generate_pptx_manifest`/`generate_docx_manifest` directly rather than
+    `get_or_generate_manifest()`, which also writes a second copy to the
+    template's own directory (`<stem>.layout-manifest.json`, the caching
+    convention `ContentPlanner` consults); a caller who names an explicit
+    `--manifest` path shouldn't get a surprise second file next to their
+    template."""
+    from src.core.analysis.manifest import generate_docx_manifest, generate_pptx_manifest
+
+    provider = None
+    resolved_llm_name, llm_config = resolve_provider_selection(llm_provider, llm_model)
+    if resolved_llm_name:
+        try:
+            provider = build_provider(resolved_llm_name, llm_config)
+            typer.echo(f"  Using LLM provider for classification pass: {resolved_llm_name}")
+        except Exception as exc:
+            typer.echo(
+                f"  [WARN] Could not initialize LLM provider '{resolved_llm_name}': {exc} "
+                "— generating structural-only manifest.",
+            )
+
+    suffix = template.suffix.lower()
+    try:
+        if suffix == ".pptx":
+            manifest = generate_pptx_manifest(template, llm_provider=provider)
+        elif suffix == ".docx":
+            manifest = generate_docx_manifest(template, llm_provider=provider)
+        else:
+            typer.echo(
+                f"[ERROR] Layout manifests are not supported for '{suffix}' templates "
+                "(PPTX and DOCX only — see docs/feature.md).",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        typer.echo(f"[ERROR] Manifest generation failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+    manifest_out.parent.mkdir(parents=True, exist_ok=True)
+    manifest_out.write_text(manifest.to_json(), encoding="utf-8")
+
+    typer.echo(f"\n  Layout manifest written: {manifest_out}")
+    typer.echo(f"  Format: {manifest.format}  classified_by_llm: {manifest.classified_by_llm}")
+    if manifest.slides:
+        typer.echo(f"  Slides analyzed: {len(manifest.slides)}")
+        for s in manifest.slides:
+            affinity = ", ".join(s.content_affinity) or "unknown"
+            typer.echo(f"    [{s.index}] {s.layout_name or '(unnamed layout)'} — {affinity} — {len(s.slots)} slot(s)")
+    if manifest.sections:
+        typer.echo(f"  Sections analyzed: {len(manifest.sections)}")
+        for sec in manifest.sections:
+            typer.echo(f"    {sec.role} — table={sec.supports_table} image={sec.has_image_anchor}")
+    typer.echo("")
+
+
 @app.command("analyze-template")
 def analyze_template_cmd(
     template: Path = typer.Argument(..., exists=True, readable=True, help="Path to .docx or .pptx template."),
+    manifest_out: Optional[Path] = typer.Option(
+        None, "--manifest",
+        help="Generate a layout manifest (structural pass, PPTX/DOCX only) and write it as JSON here.",
+    ),
+    llm_provider: Optional[str] = typer.Option(
+        None, "--llm", help="LLM provider for the manifest's classification pass: ollama | vllm | openai | claude | openrouter | groq | none."
+    ),
+    llm_model: Optional[str] = typer.Option(
+        None, "--llm-model", help="Model name for the LLM provider."
+    ),
 ) -> None:
-    """Print a summary of a template's styles, layouts, and fonts."""
+    """Print a summary of a template's styles, layouts, and fonts. With
+    --manifest, also generate a layout manifest (see docs/feature.md)."""
+    if manifest_out is not None:
+        _generate_manifest_cmd(template, manifest_out, llm_provider, llm_model)
+        return
+
     from src.core.extraction.style_extractor import extract_styles
     try:
         ss = extract_styles(template)

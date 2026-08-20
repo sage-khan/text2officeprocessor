@@ -98,8 +98,8 @@ See `./docs/initial-idea/text2officeprocessor-rule.md` for the full technical sp
 
 ## Documentation
 
-- Update `docs/development/changelog.md` with your changes (timestamped entry)
-- Update `docs/development/diagnostics.md` for any bug fixes
+- Update `docs/changelog.md` with your changes (timestamped entry)
+- Update `docs/diagnostics.md` for any bug fixes
 - Do not create separate status/tracking documents
 
 ---

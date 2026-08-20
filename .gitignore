@@ -53,6 +53,10 @@ tests/templates/ec-council-*.pptx
 tests/templates/ec-council-*.docx
 tests/data/section-01-*.md
 
+# Internal planning material — drafts, release plans, working notes.
+# Never committed: this is a public PyPI package: see .claude/memory.md.
+docs/internal/
+
 # Secrets — NEVER commit these
 .env
 .env.*

@@ -33,6 +33,31 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# SlideIntent → layout-manifest content_affinity vocabulary
+#
+# Only consulted when a TemplateManifest is supplied (see ContentPlanner's
+# `manifest` param) — bridges this planner's intent vocabulary to the
+# affinity labels `structural.py`'s guesser assigns manifest slides. Intents
+# with no direct affinity below always fall through to DEFAULT_TEMPLATE_MAP.
+# ---------------------------------------------------------------------------
+
+_INTENT_TO_AFFINITY: dict[SlideIntent, list[str]] = {
+    SlideIntent.SECTION_HEADER: ["section_header"],
+    SlideIntent.TITLE: ["section_header"],
+    SlideIntent.SINGLE_POINT: ["single_point", "section_header"],
+    SlideIntent.BULLETS: ["bullets"],
+    SlideIntent.CALLOUT: ["single_point"],
+    SlideIntent.STATS: ["stats"],
+    SlideIntent.KEY_HIGHLIGHTS: ["key_highlights"],
+    SlideIntent.FEATURES: ["feature_grid"],
+    SlideIntent.BENEFITS: ["benefits_grid"],
+    SlideIntent.GRID: ["grid", "key_highlights"],
+    SlideIntent.DIAGRAM: ["diagram", "image_heavy"],
+    SlideIntent.KEY_POINTERS: ["grid"],
+}
+
+
+# ---------------------------------------------------------------------------
 # Template index mapping: SlideIntent → default template_index
 #
 # The indices below map to a general-purpose 13-slide template bank.
@@ -89,9 +114,40 @@ class ContentPlanner:
         self,
         template_map: dict[SlideIntent, tuple[int, str]] | None = None,
         config_path: Path | None = None,
+        manifest: Any | None = None,
     ) -> None:
+        """
+        Args:
+            template_map: Override for the SlideIntent → template_index
+                mapping. Ignored per-slide whenever `manifest` resolves a
+                match for that slide's intent (see `_resolve_template_index`).
+            config_path: Path to a placeholder_map YAML config.
+            manifest: Optional `TemplateManifest` (see `src.core.analysis`)
+                for a template other than the bundled generic bank — lets
+                the planner pick a `template_index` by the manifest's own
+                `content_affinity`/`capacity` data instead of the static,
+                bundled-template-only `DEFAULT_TEMPLATE_MAP`. When absent
+                (the default), behavior is unchanged from before layout
+                manifests existed.
+        """
         self._template_map = template_map or DEFAULT_TEMPLATE_MAP
         self._placeholder_map = _load_placeholder_map(config_path)
+        self._manifest = manifest
+
+    def _resolve_template_index(self, intent: SlideIntent, content_size: int = 0) -> tuple[int, str]:
+        """Pick a `(template_index, slide_type)` pair for one slide's
+        intent. Consults `self._manifest` first (when supplied) via its own
+        `content_affinity`/`capacity` matching; falls back to the static
+        `self._template_map` whenever the manifest has no slide for this
+        intent or none was supplied — the manifest can only add matches, it
+        never removes the static mapping as a fallback."""
+        if self._manifest is not None:
+            affinities = _INTENT_TO_AFFINITY.get(intent, [])
+            if affinities:
+                best = self._manifest.best_slide_for(affinities, content_size=content_size)
+                if best is not None:
+                    return best.index, ", ".join(best.content_affinity) or "manifest slide"
+        return self._template_map.get(intent, (3, "Multi Point"))
 
     # ------------------------------------------------------------------
     # PPTX planning
@@ -122,9 +178,8 @@ class ContentPlanner:
         for slide_num, (section, (intent, content)) in enumerate(
             zip(document.sections, normalized), start=1
         ):
-            template_index, slide_type = self._template_map.get(
-                intent, (3, "Multi Point")
-            )
+            content_size = len(content.body or "") + sum(len(b) for b in content.bullets)
+            template_index, slide_type = self._resolve_template_index(intent, content_size)
             replacements = self._build_replacements(intent, content, slide_type)
             slide_def = SlideDefinition(
                 slide_number=slide_num,

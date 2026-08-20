@@ -549,8 +549,10 @@ Expected: **123 tests pass**.
 |----------|---------|
 | [docs/guide.md](docs/guide.md) | Full usage, architecture, folder structure, extending the tool |
 | [docs/architecture.drawio](docs/architecture.drawio) | System architecture diagram (open with draw.io) |
-| [docs/development/changelog.md](docs/development/changelog.md) | All changes with timestamps |
-| [docs/development/diagnostics.md](docs/development/diagnostics.md) | Bug fixes and troubleshooting |
+| [docs/changelog.md](docs/changelog.md) | All changes with timestamps |
+| [docs/diagnostics.md](docs/diagnostics.md) | Bug fixes and troubleshooting |
+| [docs/architecture.md](docs/architecture.md) | How the extraction/generation pipeline is built |
+| [docs/feature.md](docs/feature.md) | New features, one dated section per feature |
 
 ---
 

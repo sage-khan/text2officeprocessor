@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "text2officeprocessor"
-version = "0.5.1"
+version = "0.5.2"
 description = "Convert markdown/text/HTML to PPTX, DOCX, and XLSX using template-driven deterministic rendering with optional LLM normalization."
 readme = "README.md"
 license = { text = "MIT" }

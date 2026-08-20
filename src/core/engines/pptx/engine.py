@@ -524,39 +524,75 @@ def apply_items(slide: Any, template_index: int, items: dict[str, str]) -> None:
     - 10: Benefits 6-item (item_N_title, item_N_body)
     - 11: Excellence Grid — 3 items in Rectangle shapes (item_0N_title, item_0N_body)
 
+    A slot whose key is absent from `items` is expected and valid (a caller
+    supplying 2 of 4 Key Highlights cards is normal, not an error) — that
+    slot's shape is removed entirely rather than left showing the template's
+    own sentinel placeholder text ("Key Element Title Here"), which is
+    exactly what §1.10.26/§1.10.29 of this library's source rule file
+    (`md2ppt-docx.md`) documents as a real, shipped defect class.
+
     Args:
         slide: python-pptx Slide object.
         template_index: The template_index of the cloned slide.
         items: Dict of item keys to text values.
     """
     if template_index == 7:
-        card_idx = 0
-        for shape in slide.shapes:
-            if not shape.has_text_frame:
-                continue
-            if "Key Element Title" in shape.text_frame.text:
-                card_idx += 1
-                _replace_card(shape, f"card_{card_idx}_title", f"card_{card_idx}_body", items, "Key Element Title")
-
+        _apply_card_group(slide, items, "card_{n}_title", "card_{n}_body", "Key Element Title")
     elif template_index in {9, 10}:
-        item_idx = 0
-        for shape in slide.shapes:
-            if not shape.has_text_frame:
-                continue
-            if "Key Element Title Here" in shape.text_frame.text:
-                item_idx += 1
-                _replace_card(shape, f"item_{item_idx}_title", f"item_{item_idx}_body", items, "Key Element Title Here")
-
+        _apply_card_group(slide, items, "item_{n}_title", "item_{n}_body", "Key Element Title Here")
     elif template_index == 11:
-        rect_idx = 0
-        for shape in slide.shapes:
-            if not shape.has_text_frame:
-                continue
-            if "Rectangle" not in shape.name:
-                continue
-            if "Key Element Title Here" in shape.text_frame.text:
-                rect_idx += 1
-                _replace_card(shape, f"item_0{rect_idx}_title", f"item_0{rect_idx}_body", items, "Key Element Title Here")
+        _apply_card_group(
+            slide, items, "item_0{n}_title", "item_0{n}_body", "Key Element Title Here",
+            name_filter="Rectangle",
+        )
+
+
+def _apply_card_group(
+    slide: Any,
+    items: dict[str, str],
+    title_key_fmt: str,
+    body_key_fmt: str,
+    sentinel: str,
+    name_filter: str | None = None,
+) -> None:
+    """
+    Shared driver for `apply_items()`'s per-template-index card loops.
+
+    Each matching shape is one card, carrying both its title and body text as
+    separate paragraphs/runs within the SAME shape (the "Key Element Title
+    Here" sentinel templates' pattern — distinct from this library's own
+    bundled generic template, which uses separate shapes with the literal
+    key text as placeholder content; see `_remove_unreplaced_item_placeholders`
+    for that case). For a slot with no matching `items` key, the whole shape
+    is removed rather than left showing the sentinel text.
+
+    Deliberately does NOT attempt to also remove a card's decorative
+    background/icon shape here: on the sentinel-style templates this
+    function targets, decoration shapes are not reliably 1:1 interleaved
+    with their card in shape z-order (some real templates group all of a
+    grid's decorations before any of its card content), so a position-based
+    removal risks stripping a shape still owned by a surviving card. Safe,
+    geometry-aware decoration cleanup needs the slot bounding-box data the
+    Layout Manifest system is designed to provide — until then, leaving an
+    empty decorative shape behind is a far smaller visual defect than either
+    leaving sentinel text visible or wrongly deleting another card's
+    decoration.
+    """
+    card_idx = 0
+    for shape in list(slide.shapes):
+        if not shape.has_text_frame:
+            continue
+        if name_filter and name_filter not in shape.name:
+            continue
+        if sentinel not in shape.text_frame.text:
+            continue
+        card_idx += 1
+        title_key = title_key_fmt.format(n=card_idx)
+        body_key = body_key_fmt.format(n=card_idx)
+        if title_key in items:
+            _replace_card(shape, title_key, body_key, items, sentinel)
+        else:
+            _remove_shape(shape)
 
 
 def _replace_card(
@@ -578,6 +614,61 @@ def _replace_card(
                 for kw in ["sample text", "simply add", "description here", "this text is editable"]
             ):
                 run.text = items.get(body_key, run.text)
+
+
+# ---------------------------------------------------------------------------
+# Cleanup of unfilled item slots on the LIBRARY'S OWN bundled generic
+# template, whose card slots carry the item key itself as placeholder text
+# (e.g. a shape literally containing "card_3_title") rather than a sentinel
+# string. `_render_slide()`'s first replacement pass only touches keys
+# present in `items`, so an absent key leaves that literal internal key name
+# rendered on the slide — a worse leak than the sentinel-template case, since
+# it exposes an implementation detail, not just placeholder prose.
+# ---------------------------------------------------------------------------
+
+_LITERAL_ITEM_KEY_RE = re.compile(r"^(card_\d+_(?:title|body)|item_0?\d+_(?:title|body))$")
+
+
+def _shape_has_no_text(shape: Any) -> bool:
+    if not getattr(shape, "has_text_frame", False):
+        return True
+    return not shape.text_frame.text.strip()
+
+
+def _remove_shape(shape: Any) -> None:
+    el = shape._element
+    parent = el.getparent()
+    if parent is not None:
+        parent.remove(el)
+
+
+def _remove_unreplaced_item_placeholders(slide: Any) -> None:
+    """
+    Remove any shape whose full text is still exactly one of this library's
+    own item-key placeholder strings (e.g. "card_3_title") after the literal
+    replacement pass — meaning no matching key was present in `items` for
+    that slot. Also removes the single decoration shape immediately
+    preceding a removed "_title" shape, IF it's unclaimed and has no text of
+    its own — verified safe for this library's bundled `generic-slides.pptx`
+    template, whose card slots are each exactly one decoration shape
+    followed by its title (and optional body) shape, with no shared/grouped
+    decoration between cards.
+    """
+    shapes = list(slide.shapes)
+    claimed: set[int] = set()
+    for i, shape in enumerate(shapes):
+        if id(shape) in claimed or not shape.has_text_frame:
+            continue
+        text = shape.text_frame.text.strip()
+        if not _LITERAL_ITEM_KEY_RE.match(text):
+            continue
+        claimed.add(id(shape))
+        if text.endswith("_title") and i > 0:
+            prev = shapes[i - 1]
+            if id(prev) not in claimed and _shape_has_no_text(prev):
+                claimed.add(id(prev))
+                _remove_shape(prev)
+        _remove_shape(shape)
 
 
 # ---------------------------------------------------------------------------
@@ -1057,6 +1148,9 @@ class PPTXEngine:
             # placeholder keys (e.g. "card_1_title", "card_1_body") in TextBoxes.
             for item_key, item_val in sdef.items.items():
                 replace_text_everywhere(new_slide, item_key, item_val)
+            # Remove any slot the first pass didn't have a key for, rather
+            # than leave the literal key name ("card_3_title") visible.
+            _remove_unreplaced_item_placeholders(new_slide)
             # Second pass: keyword-sentinel replacement for premium templates
             # that use "Key Element Title" / "Key Element Title Here" markers.
             apply_items(new_slide, sdef.template_index, sdef.items)

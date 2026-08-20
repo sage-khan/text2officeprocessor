@@ -313,6 +313,67 @@ def test_fit_slide_plan_leaves_short_slides_untouched():
     assert fitted_plan.slides[0].bullets == ["one", "two"]
 
 
+def test_fit_slide_plan_does_not_inject_spurious_title_key():
+    """Regression test: a slide whose `replacements` dict has no literal
+    "title" key (true for every bundled template's Key Highlights/Grid/
+    Features/Benefits slide types, which key their title placeholder by its
+    actual template text, not the word "title") must come back from
+    `fit_slide_plan()` with no "title" key added either. Previously
+    `merged_replacements = {**sdef.replacements, "title": fitted.title}`
+    added one unconditionally (usually "" when no fitting was needed),
+    which `_render_slide()`'s `replace_text_everywhere()` — a SUBSTRING
+    matcher — then used to delete the literal text "title" wherever it
+    appeared on the slide, corrupting shapes like this library's own
+    "card_1_title" placeholder into "card_1_"."""
+    cfg = make_config()  # strategy="split", short content needs no fitting
+    fitter = PPTXContentFitter(config=cfg)
+    plan = SlidePlan(
+        title="Deck",
+        slides=[
+            SlideDefinition(
+                slide_number=1,
+                template_index=7,
+                slide_type="key_highlights",
+                intent=SlideIntent.KEY_HIGHLIGHTS,
+                replacements={"Key Highlights": "Course Highlights"},
+                items={"card_1_title": "Foundations", "card_1_body": "Core concepts."},
+            )
+        ],
+    )
+
+    fitted_plan = fitter.fit_slide_plan(plan)
+
+    assert len(fitted_plan.slides) == 1
+    fitted_sdef = fitted_plan.slides[0]
+    assert "title" not in fitted_sdef.replacements
+    assert fitted_sdef.replacements == {"Key Highlights": "Course Highlights"}
+    assert fitted_sdef.items == {"card_1_title": "Foundations", "card_1_body": "Core concepts."}
+
+
+def test_fit_slide_plan_still_updates_existing_title_key():
+    """When `replacements` already carries a literal "title" key, the
+    fitter's (possibly LLM-rewritten) title should still overwrite it —
+    only the unconditional-injection case above is the bug."""
+    cfg = make_config()
+    fitter = PPTXContentFitter(config=cfg)
+    plan = SlidePlan(
+        title="Deck",
+        slides=[
+            SlideDefinition(
+                slide_number=1,
+                template_index=0,
+                slide_type="section_header",
+                intent=SlideIntent.SECTION_HEADER,
+                replacements={"title": "Intro"},
+            )
+        ],
+    )
+
+    fitted_plan = fitter.fit_slide_plan(plan)
+
+    assert fitted_plan.slides[0].replacements["title"] == "Intro"
+
+
 # ---------------------------------------------------------------------------
 # load_fitter_config — resolves via config_loader, defaults when missing
 # ---------------------------------------------------------------------------

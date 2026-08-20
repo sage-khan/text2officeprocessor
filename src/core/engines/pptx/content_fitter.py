@@ -168,7 +168,23 @@ class PPTXContentFitter:
             # silently override the user's template choice even when no
             # fitting occurred (FittedSlide defaults template_index to 3).
             for i, fitted in enumerate(fitted_slides):
-                merged_replacements = {**sdef.replacements, "title": fitted.title}
+                # Only overlay the fitted title back onto a literal "title"
+                # replacement key when one already existed on this slide —
+                # unconditionally injecting {"title": fitted.title} here
+                # (previously always, even when fitted.title was just an
+                # echo of an absent "" default) fed an empty-string value
+                # into replace_text_everywhere()'s SUBSTRING match, silently
+                # deleting the literal text "title" wherever it appeared on
+                # the slide — corrupting shapes like "card_1_title" into
+                # "card_1_" on every render with an LLM provider configured
+                # (real, high-impact defect found verifying 0.5.2's
+                # apply_items() fix; no bundled template's placeholder_map
+                # actually uses "title" as a literal key, so this was
+                # silently active on essentially every default `convert`
+                # invocation with a reachable LLM provider).
+                merged_replacements = dict(sdef.replacements)
+                if "title" in sdef.replacements:
+                    merged_replacements["title"] = fitted.title
                 new_sdef = SlideDefinition(
                     slide_number=sdef.slide_number + i,
                     template_index=sdef.template_index if i == 0 else fitted.template_index,

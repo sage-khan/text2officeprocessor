@@ -12,6 +12,7 @@ from src.core.exceptions import TemplateNotFoundError, RenderError
 from src.core.planner.content_planner import ContentPlanner
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "sample-sections.pptx"
+GENERIC_TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "generic-slides.pptx"
 SLIDES_MD_PATH = Path(__file__).parent / "data" / "sample-slides.md"
 MIN_EXPECTED_SIZE = 500_000  # 500KB minimum for a real background-preserved output
 
@@ -338,3 +339,136 @@ def test_set_big_statement_centers_text_and_removes_bullet_glyph():
         assert shape.text_frame.vertical_anchor == MSO_ANCHOR.MIDDLE
         return
     pytest.fail("could not locate the placeholder that set_big_statement filled")
+
+
+def test_unfilled_literal_key_card_slots_are_removed():
+    """Regression test: the bundled `generic-slides.pptx` template's grid
+    slides (Key Highlights, Excellence Grid, ...) use the item KEY ITSELF as
+    each card's placeholder text (e.g. a shape literally reading
+    "card_3_title"). Supplying fewer items than the template has slots is
+    normal (a 2-card Key Highlights slide is valid), but before this fix the
+    unmatched slots' shapes were left untouched — the raw internal key name
+    rendered on the slide instead of being invisible. `_render_slide()` must
+    remove both the unfilled title/body shapes and their single decoration
+    shape, leaving only the filled cards' shapes behind.
+    """
+    if not GENERIC_TEMPLATE_PATH.exists():
+        pytest.skip("Bundled generic template not available")
+    from pptx import Presentation
+    from src.core.engines.pptx.engine import (
+        duplicate_slide,
+        replace_text_everywhere,
+        _remove_unreplaced_item_placeholders,
+    )
+
+    prs = Presentation(str(GENERIC_TEMPLATE_PATH))
+    # Slide index 7 is the Key Highlights bank slide: 4 cards, each
+    # Rectangle(decoration) + TextBox("card_N_title") + TextBox("card_N_body").
+    slide = duplicate_slide(prs, 7)
+    shapes_before = len(slide.shapes)
+
+    items = {"card_1_title": "First", "card_1_body": "First body", "card_2_title": "Second", "card_2_body": "Second body"}
+    for key, val in items.items():
+        replace_text_everywhere(slide, key, val)
+    _remove_unreplaced_item_placeholders(slide)
+
+    all_text = " ".join(
+        shape.text_frame.text for shape in slide.shapes if shape.has_text_frame
+    )
+    assert "card_3_title" not in all_text
+    assert "card_3_body" not in all_text
+    assert "card_4_title" not in all_text
+    assert "card_4_body" not in all_text
+    assert "First" in all_text and "Second" in all_text
+
+    # Each unfilled card removes 3 shapes (decoration + title + body); two
+    # unfilled cards means 6 fewer shapes than the original slide.
+    assert len(slide.shapes) == shapes_before - 6
+
+
+def test_apply_items_removes_unfilled_sentinel_card_shape():
+    """Regression test for the sentinel-style ("Key Element Title Here")
+    card templates apply_items() targets: a slot with no matching items key
+    must have its shape removed rather than left showing the template's own
+    placeholder sentinel text.
+    """
+    if not TEMPLATE_PATH.exists():
+        pytest.skip("Test template not available")
+    from pptx import Presentation
+    from src.core.engines.pptx.engine import duplicate_slide, apply_items
+
+    prs = Presentation(str(TEMPLATE_PATH))
+    # Slide index 7 is the Key Highlights bank slide (4 "Key Element Title
+    # NN" cards, each one shape holding both title and body paragraphs).
+    slide = duplicate_slide(prs, 7)
+    shapes_before = len(slide.shapes)
+
+    items = {"card_1_title": "First", "card_1_body": "First body"}
+    apply_items(slide, 7, items)
+
+    all_text = " ".join(
+        shape.text_frame.text for shape in slide.shapes if shape.has_text_frame
+    )
+    assert "Key Element Title" not in all_text
+    assert "First" in all_text
+    # Cards 2-4 had no matching items key — their shapes are removed.
+    assert len(slide.shapes) == shapes_before - 3
+
+
+def test_render_with_llm_provider_does_not_corrupt_card_titles(tmp_path):
+    """End-to-end regression test for a real bug found verifying the
+    apply_items() fix above: with an LLM provider configured (the CLI's
+    default whenever one is reachable), `PPTXContentFitter.fit_slide_plan()`
+    used to inject a literal "title" key into every slide's `replacements`
+    dict unconditionally, which `replace_text_everywhere()`'s substring
+    matching then used to delete the text "title" wherever it appeared on
+    the slide — silently truncating this library's own bundled template's
+    "card_1_title"/"card_2_title" shapes into "card_1_"/"card_2_", even
+    though those slots WERE correctly matched and should render intact.
+    Render through the full `PPTXEngine` with a provider configured and
+    confirm titles come through whole.
+    """
+    if not GENERIC_TEMPLATE_PATH.exists():
+        pytest.skip("Bundled generic template not available")
+    from pptx import Presentation
+    from src.core.llm.base import LLMProvider
+    from src.core.models import SlideDefinition, SlideIntent, SlidePlan
+
+    class NeverCalledProvider(LLMProvider):
+        """Content this short never needs fitting — if this provider's
+        `generate()` is ever invoked, the test itself is set up wrong."""
+        def generate(self, prompt: str) -> str:
+            raise AssertionError("LLM should not be called for short content")
+
+    plan = SlidePlan(
+        title="Deck",
+        slides=[
+            SlideDefinition(
+                slide_number=1,
+                template_index=7,
+                slide_type="key_highlights",
+                intent=SlideIntent.KEY_HIGHLIGHTS,
+                replacements={},
+                items={
+                    "card_1_title": "Foundations",
+                    "card_1_body": "Core ML concepts and auditing fundamentals.",
+                    "card_2_title": "Compliance",
+                    "card_2_body": "GDPR, EU AI Act, NIST AI RMF coverage.",
+                },
+            )
+        ],
+    )
+
+    engine = PPTXEngine(llm_provider=NeverCalledProvider())
+    out = engine.render(plan, GENERIC_TEMPLATE_PATH, tmp_path / "kh.pptx")
+
+    prs = Presentation(str(out))
+    all_text = " ".join(
+        shape.text_frame.text for shape in prs.slides[0].shapes if shape.has_text_frame
+    )
+    assert "Foundations" in all_text
+    assert "Compliance" in all_text
+    assert "card_1_" not in all_text
+    assert "card_2_" not in all_text
+    assert "card_3_" not in all_text
+    assert "card_4_" not in all_text

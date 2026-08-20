@@ -4,6 +4,108 @@ All changes are recorded here with timestamps. Append-only.
 
 ---
 
+## [0.5.2] — 2026-08-20
+
+### Added — Layout manifest system (`analyze-template --manifest`)
+
+Static template mapping (`ContentPlanner.DEFAULT_TEMPLATE_MAP`) only ever knew the one
+bundled 13-slide PPTX bank — any other template required hand-writing a `--slides-md` file
+with exact `template_index` values, since nothing inspected an unfamiliar template and
+reported which slide fits "four stats," whether a slot takes an image, or whether a table
+will fit.
+
+New `src/core/analysis/` package generates a per-template JSON **layout manifest**
+(`TemplateManifest`) in two passes: a deterministic structural pass (`structural.py`,
+sharing its shape-inspection heuristics with the existing `analyze` CLI command rather than
+duplicating them) that enumerates slots, positions, and a best-guess `content_affinity`;
+and an optional LLM classification pass (`manifest.py`) that only ever refines
+`content_affinity`/`notes` — it can never alter a slot's `injection_recipe`, which stays
+restricted to a fixed, proven-safe enum (`single_run_replace`, `set_bullets`,
+`apply_items`, `inject_template_image`, ...) the merge step never lets an LLM response
+touch. A provider failure falls back to the structural-only manifest silently — the
+classification pass is always optional. Supports PPTX (per-slide) and DOCX (per-heading-
+style + table/image capability) templates; XLSX is intentionally out of scope since
+`XLSXEngine` builds sheets directly with no template to clone, so there's no
+injection-safety contract for a manifest to describe.
+
+Usage: `text2officeprocessor analyze-template my-template.pptx --manifest out.json [--llm ollama]`.
+Manifests are cached next to the template (`<stem>.layout-manifest.json`, regenerated only
+when the template's mtime changes) and consumed via `ContentPlanner(manifest=...)`, which
+falls back to the static `DEFAULT_TEMPLATE_MAP` whenever the manifest has no matching slide
+— passing no manifest (every existing caller) leaves behavior byte-identical to 0.5.1. See
+`docs/feature.md` for full usage and `docs/architecture.md` §5 for the design.
+
+### Fixed — `apply_items()` no longer leaves unfilled grid/card slots showing template placeholder text
+
+`apply_items()`/`_replace_card()` (Key Highlights, Features, Benefits, Excellence Grid
+template slides) only ever replaced text for slots present in the caller's `items` dict.
+Supplying fewer items than a template has slots is normal and expected (a 2-card Key
+Highlights slide is a completely valid use of a 4-card layout) — but the unmatched card
+shapes were never touched, so they shipped with the template's own literal placeholder text
+still visible ("Key Element Title Here", "This text is editable...") or, on this library's
+own bundled `generic-slides.pptx` template, the literal internal item-key name itself (e.g.
+"card_3_title") — a worse leak, since it exposes an implementation detail rather than just
+placeholder prose. Zero regression coverage existed on this path before this release.
+
+Both card-shape patterns are now handled: `_apply_card_group()` removes any sentinel-style
+card shape ("Key Element Title Here"-style templates) with no matching `items` key entirely,
+rather than leaving it visible; `_remove_unreplaced_item_placeholders()` does the same for
+this library's own bundled template's literal-key-as-placeholder pattern, including removing
+each unfilled card's single decoration shape (verified safe for `generic-slides.pptx`'s
+one-decoration-per-card structure — not attempted for the sentinel-style templates, where
+decoration shapes aren't reliably 1:1 interleaved with their card in z-order). Two new
+regression tests cover both patterns.
+
+### Changed — Documentation reorganized to flat `docs/` layout
+
+Executed a repo convention that was written down (`.claude/memory.md`) but never actually
+applied: `docs/development/changelog.md` → `docs/changelog.md`, `docs/development/
+diagnostics.md` → `docs/diagnostics.md` (content unchanged, just relocated).
+`docs/development/implementation-v2.md` (the v2 architecture plan, largely shipped since)
+folded into a new `docs/architecture.md` — rewritten as "how the system is built" rather
+than "here's the plan," now covering the extraction pipeline and the new layout-manifest
+system too. New `docs/feature.md` for dated, per-feature usage docs going forward (starting
+with the layout-manifest system above). `docs/development/` is now empty and removed.
+
+### Fixed — LLM-configured renders silently deleted the text "title" wherever it appeared on a slide
+
+Found while visually verifying the `apply_items()` fix above end-to-end with an LLM
+provider configured (the CLI's default whenever one is reachable, e.g. a local Ollama):
+`card_1_title`/`card_2_title` — correctly matched, filled slots — rendered as truncated
+`card_1_`/`card_2_` instead of their real content. Root cause: `PPTXContentFitter.
+fit_slide_plan()` unconditionally injected `merged_replacements = {**sdef.replacements,
+"title": fitted.title}` into every slide's replacement dict, regardless of whether that
+slide's `replacements` ever had a literal `"title"` key (no bundled template's
+placeholder_map actually uses the word "title" as a key — Key Highlights/Grid/Features/
+Benefits slides key their title by the template's real placeholder text instead). When
+`fitted.title` was `""` (the common case — nothing needed fitting), this fed `("title",
+"")` into `replace_text_everywhere()`, which matches by **substring**, so it silently
+deleted the literal text "title" everywhere it occurred on the slide — including inside
+"card_1_title", "card_2_title", etc. This was live on essentially every default `convert`
+invocation with a reachable LLM provider, for every slide type, since 0.4.1.
+
+Fixed by only overlaying the fitted title back onto `replacements["title"]` when that key
+already existed on the slide (`src/core/engines/pptx/content_fitter.py`) — the one case
+this mechanism could ever have been intentionally exercised. Three new regression tests:
+two at the fitter level (`test_fit_slide_plan_does_not_inject_spurious_title_key`,
+`test_fit_slide_plan_still_updates_existing_title_key`) and one full-pipeline render
+(`test_render_with_llm_provider_does_not_corrupt_card_titles`) confirming a Key Highlights
+slide renders intact with an LLM provider configured.
+
+### Verified — DOCX table-hardening spot-check (no defect found)
+
+Rendered `tests/data/sample-summary.md` (contains a markdown table) through the Pandoc path
+against the bundled `generic-document.docx` template and confirmed via direct XML
+inspection plus a `libreoffice --headless --convert-to pdf` + `pdftoppm` visual render: the
+table's `tblStyle` reference is correctly stripped when unresolvable, explicit borders are
+written, and the table stays inline in document order (title → paragraphs → table → footer
+line) rather than being dumped at the end. No code change — `_harden_tables()`/
+`_inject_section()`'s existing behavior matches the documented recipe exactly.
+
+255/255 tests passing.
+
+---
+
 ## [0.5.1] — 2026-07-19
 
 ### Fixed — `set_bullets()` no longer inherits inconsistent paragraph-slot indent
