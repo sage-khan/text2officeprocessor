@@ -4,6 +4,36 @@ All changes are recorded here with timestamps. Append-only.
 
 ---
 
+## [0.5.3] — 2026-08-21
+
+### Added — Unified job config (`--config job.yaml`)
+
+`convert` / `batch` / `watch` each accumulated a long list of flags (input, template, output,
+type, `--llm`/`--llm-model`, validate switches, overflow strategy, ...). `--config` already
+existed but only fed the rules YAML (`validation`/`sanitization`/`placeholder_map`/...) consumed
+by `ContentPlanner`/`ProgrammaticValidator` — it had no way to supply the job's own paths or LLM
+provider settings, so those still had to be typed out on every invocation.
+
+`--config` now additionally reads a `job:` section (`input`/`slides_md`/`template`/`output`/`type`/
+`validate`/`llm_validate`/`overflow_strategy`/`log_level`, plus `input_dir`/`output_dir`/`pattern`/
+`fail_fast` for `batch` and `debounce` for `watch`) and an `llm:` section (same shape as
+`llm_config.yaml`: `default_provider` + per-provider `model`/`base_url`/`timeout_seconds`, now also
+accepting an inline `api_key` per provider — useful for keeping a job's cloud credentials or a
+local LLM endpoint next to the rest of its settings instead of only via env vars). New
+`src/core/job_config.py` (`load_job_config`, `pick`) loads these sections and merges them with the
+CLI flags — an explicit flag always overrides the config file's value, so `--config job.yaml
+--output other.pptx` only overrides the output path. `resolve_provider_selection()` gained an
+optional override-dict parameter so the `llm:` section can be used in place of the
+auto-discovered `llm_config.yaml`, and each cloud provider (`OpenAIProvider`, `ClaudeProvider`,
+`OpenRouterProvider`, `GroqProvider`, `VLLMProvider`) now accepts an `api_key` constructor
+argument that takes priority over its environment variable. The same file can still carry the
+pre-existing rules sections — it's passed straight through as `config_path` to `ContentPlanner`/
+`ProgrammaticValidator` unchanged, so one file covers both concerns. Existing `--config
+my-rules.yaml` usage without a `job:`/`llm:` section is unaffected. See the README's "Unified job
+config" section for the full schema.
+
+---
+
 ## [0.5.2] — 2026-08-20
 
 ### Added — Layout manifest system (`analyze-template --manifest`)

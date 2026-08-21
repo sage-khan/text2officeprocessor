@@ -7,6 +7,7 @@ Usage:
     text2officeprocessor convert --input input.md --output output.xlsx --type xlsx
     text2officeprocessor convert --slides-md slides.md --template template.pptx --output out.pptx --type pptx
     text2officeprocessor convert --slides-md slides.md --template template.pptx --output out.pptx --config my-rules.yaml
+    text2officeprocessor convert --config job.yaml   # input/template/output/type/llm settings all from one file
     text2officeprocessor analyze template.pptx
     text2officeprocessor batch --input-dir ./content/ --output-dir ./outputs/ --type pptx --template template.pptx
     text2officeprocessor batch --input-dir ./content/ --output-dir ./outputs/ --type xlsx
@@ -27,6 +28,7 @@ from src.core.engines.docx.engine import DOCXEngine
 from src.core.engines.pptx.engine import PPTXEngine
 from src.core.engines.xlsx.engine import XLSXEngine
 from src.core.exceptions import Text2OfficeProcessorError
+from src.core.job_config import load_job_config, pick
 from src.core.llm.runtime_config import resolve_provider_selection
 from src.core.llm.providers import build_provider
 from src.core.models import OutputFormat
@@ -91,9 +93,12 @@ def convert(
         None, "--template", "-t",
         help="Template .pptx or .docx file. Omit to use the bundled generic template.",
     ),
-    output: Path = typer.Option(..., "--output", "-o", help="Output file path."),
-    output_type: OutputFormat = typer.Option(
-        OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Output file path. Required unless supplied via --config's job.output.",
+    ),
+    output_type: Optional[OutputFormat] = typer.Option(
+        None, "--type", help="Output format: pptx | docx | xlsx. [default: pptx]"
     ),
     llm_provider: Optional[str] = typer.Option(
         None, "--llm", help="LLM provider: ollama | vllm | openai | claude | openrouter | groq | none."
@@ -101,28 +106,62 @@ def convert(
     llm_model: Optional[str] = typer.Option(
         None, "--llm-model", help="Model name for the LLM provider."
     ),
-    validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after rendering."),
-    llm_validate: bool = typer.Option(
-        False, "--llm-validate/--no-llm-validate",
+    validate: Optional[bool] = typer.Option(
+        None, "--validate/--no-validate", help="Run validation after rendering. [default: validate]"
+    ),
+    llm_validate: Optional[bool] = typer.Option(
+        None, "--llm-validate/--no-llm-validate",
         help="Run an LLM semantic coherence check after rendering (requires --llm).",
     ),
     config: Optional[Path] = typer.Option(
         None, "--config", "-c",
-        help="Path to a custom rules YAML file (overrides config/default_rules.yaml).",
+        help=(
+            "Path to a unified job config YAML. Can supply input/slides-md/template/output/type, "
+            "LLM provider settings (including inline api_key or a local endpoint's base_url), and "
+            "validate/overflow-strategy flags under `job:`/`llm:` keys — replacing most other flags. "
+            "May also carry the rules sections (validation/sanitization/placeholder_map/...) normally "
+            "read from config/default_rules.yaml. Explicit CLI flags always override this file."
+        ),
     ),
     overflow_strategy: Optional[str] = typer.Option(
         None, "--overflow-strategy",
         help="PPTX overflow handling: summarize (LLM condense) | split (multi-slide) | shrink (font reduce) | auto (LLM decides).",
     ),
-    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+    log_level: Optional[str] = typer.Option(
+        None, "--log-level", help="Logging level: debug | info | warning. [default: info]"
+    ),
 ) -> None:
     """Convert an input document to PPTX, DOCX, or XLSX."""
+    job_cfg = load_job_config(config)
+
+    input_file = pick(input_file, job_cfg.input)
+    slides_md = pick(slides_md, job_cfg.slides_md)
+    template = pick(template, job_cfg.template)
+    output = pick(output, job_cfg.output)
+    llm_provider = pick(llm_provider, job_cfg.llm_provider)
+    llm_model = pick(llm_model, job_cfg.llm_model)
+    validate = pick(validate, job_cfg.validate)
+    if validate is None:
+        validate = True
+    llm_validate = pick(llm_validate, job_cfg.llm_validate)
+    if llm_validate is None:
+        llm_validate = False
+    overflow_strategy = pick(overflow_strategy, job_cfg.overflow_strategy)
+    log_level = pick(log_level, job_cfg.log_level) or "info"
+    output_type = OutputFormat(pick(output_type.value if output_type else None, job_cfg.output_type) or "pptx")
+
+    if output is None:
+        typer.echo("[ERROR] --output is required (either as a flag or via --config's job.output).", err=True)
+        raise typer.Exit(code=1)
+
     _setup_logging(log_level)
     logger = logging.getLogger("text2officeprocessor.cli")
 
     # -- Resolve LLM provider (local-first; configurable)
     provider = None
-    resolved_llm_name, llm_config = resolve_provider_selection(llm_provider, llm_model)
+    resolved_llm_name, llm_config = resolve_provider_selection(
+        llm_provider, llm_model, job_cfg.llm_settings or None
+    )
     if resolved_llm_name:
         try:
             provider = build_provider(resolved_llm_name, llm_config)
@@ -384,24 +423,25 @@ def analyze(
 
 @app.command("batch")
 def batch(
-    input_dir: Path = typer.Option(
-        ..., "--input-dir", "-i",
-        help="Directory containing input files (.md / .txt / .html).",
+    input_dir: Optional[Path] = typer.Option(
+        None, "--input-dir", "-i",
+        help="Directory containing input files (.md / .txt / .html). Required unless set via --config's job.input_dir.",
     ),
-    output_dir: Path = typer.Option(
-        ..., "--output-dir", "-o",
-        help="Directory where output files will be written (created if absent).",
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output-dir", "-o",
+        help="Directory where output files will be written (created if absent). "
+             "Required unless set via --config's job.output_dir.",
     ),
-    output_type: OutputFormat = typer.Option(
-        OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
+    output_type: Optional[OutputFormat] = typer.Option(
+        None, "--type", help="Output format: pptx | docx | xlsx. [default: pptx]"
     ),
     template: Optional[Path] = typer.Option(
         None, "--template", "-t",
         help="Template .pptx or .docx file. Omit to use the bundled generic template.",
     ),
-    glob_pattern: str = typer.Option(
-        "*", "--pattern", "-p",
-        help="Glob pattern to filter input files, e.g. '*.md' or 'section-*.html'.",
+    glob_pattern: Optional[str] = typer.Option(
+        None, "--pattern", "-p",
+        help="Glob pattern to filter input files, e.g. '*.md' or 'section-*.html'. [default: *]",
     ),
     llm_provider: Optional[str] = typer.Option(
         None, "--llm", help="LLM provider: ollama | vllm | openai | claude | openrouter | groq | none."
@@ -409,24 +449,60 @@ def batch(
     llm_model: Optional[str] = typer.Option(
         None, "--llm-model", help="Model name for the LLM provider."
     ),
-    validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after each render."),
-    llm_validate: bool = typer.Option(
-        False, "--llm-validate/--no-llm-validate",
+    validate: Optional[bool] = typer.Option(
+        None, "--validate/--no-validate", help="Run validation after each render. [default: validate]"
+    ),
+    llm_validate: Optional[bool] = typer.Option(
+        None, "--llm-validate/--no-llm-validate",
         help="Run an LLM semantic coherence check after each render (requires --llm).",
     ),
     config: Optional[Path] = typer.Option(
         None, "--config", "-c",
-        help="Path to a custom rules YAML file.",
+        help=(
+            "Path to a unified job config YAML — input_dir/output_dir/template/type/pattern, LLM "
+            "provider settings, and validate flags under `job:`/`llm:` keys, plus optional rules "
+            "sections. Explicit CLI flags always override this file."
+        ),
     ),
-    fail_fast: bool = typer.Option(
-        False, "--fail-fast/--no-fail-fast",
+    fail_fast: Optional[bool] = typer.Option(
+        None, "--fail-fast/--no-fail-fast",
         help="Stop immediately on first error instead of continuing with remaining files.",
     ),
-    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+    log_level: Optional[str] = typer.Option(
+        None, "--log-level", help="Logging level: debug | info | warning. [default: info]"
+    ),
 ) -> None:
     """Convert every input file in a directory to the chosen output format."""
+    job_cfg = load_job_config(config)
+
+    input_dir = pick(input_dir, job_cfg.input_dir)
+    output_dir = pick(output_dir, job_cfg.output_dir)
+    template = pick(template, job_cfg.template)
+    glob_pattern = pick(glob_pattern, job_cfg.pattern) or "*"
+    llm_provider = pick(llm_provider, job_cfg.llm_provider)
+    llm_model = pick(llm_model, job_cfg.llm_model)
+    validate = pick(validate, job_cfg.validate)
+    if validate is None:
+        validate = True
+    llm_validate = pick(llm_validate, job_cfg.llm_validate)
+    if llm_validate is None:
+        llm_validate = False
+    fail_fast = pick(fail_fast, job_cfg.fail_fast)
+    if fail_fast is None:
+        fail_fast = False
+    log_level = pick(log_level, job_cfg.log_level) or "info"
+    output_type = OutputFormat(pick(output_type.value if output_type else None, job_cfg.output_type) or "pptx")
+
     _setup_logging(log_level)
     logger = logging.getLogger("text2officeprocessor.batch")
+
+    if input_dir is None or output_dir is None:
+        typer.echo(
+            "[ERROR] --input-dir and --output-dir are required "
+            "(either as flags or via --config's job.input_dir/job.output_dir).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     if not input_dir.is_dir():
         typer.echo(f"[ERROR] Input directory not found: {input_dir}", err=True)
@@ -450,7 +526,9 @@ def batch(
 
     # Resolve LLM provider once for the whole batch (local-first; configurable)
     provider = None
-    resolved_llm_name, llm_config = resolve_provider_selection(llm_provider, llm_model)
+    resolved_llm_name, llm_config = resolve_provider_selection(
+        llm_provider, llm_model, job_cfg.llm_settings or None
+    )
     if resolved_llm_name:
         try:
             provider = build_provider(resolved_llm_name, llm_config)
@@ -513,12 +591,15 @@ def batch(
 
 @app.command("watch")
 def watch(
-    input_file: Path = typer.Option(
-        ..., "--input", "-i", help="Input .md / .txt / .html file to watch."
+    input_file: Optional[Path] = typer.Option(
+        None, "--input", "-i",
+        help="Input .md / .txt / .html file to watch. Required unless set via --config's job.input.",
     ),
-    output: Path = typer.Option(..., "--output", "-o", help="Output file path."),
-    output_type: OutputFormat = typer.Option(
-        OutputFormat.PPTX, "--type", help="Output format: pptx | docx | xlsx."
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="Output file path. Required unless set via --config's job.output.",
+    ),
+    output_type: Optional[OutputFormat] = typer.Option(
+        None, "--type", help="Output format: pptx | docx | xlsx. [default: pptx]"
     ),
     template: Optional[Path] = typer.Option(
         None, "--template", "-t",
@@ -534,18 +615,48 @@ def watch(
     llm_model: Optional[str] = typer.Option(
         None, "--llm-model", help="Model name for the LLM provider."
     ),
-    validate: bool = typer.Option(True, "--validate/--no-validate", help="Run validation after each regeneration."),
+    validate: Optional[bool] = typer.Option(
+        None, "--validate/--no-validate", help="Run validation after each regeneration. [default: validate]"
+    ),
     config: Optional[Path] = typer.Option(
-        None, "--config", "-c", help="Path to a custom rules YAML file."
+        None, "--config", "-c",
+        help="Path to a unified job config YAML (input/template/output/type/llm settings/validate), "
+             "plus optional rules sections. Explicit CLI flags always override this file.",
     ),
-    debounce: float = typer.Option(
-        1.0, "--debounce", help="Seconds to wait after a change before regenerating (default: 1.0)."
+    debounce: Optional[float] = typer.Option(
+        None, "--debounce", help="Seconds to wait after a change before regenerating. [default: 1.0]"
     ),
-    log_level: str = typer.Option("info", "--log-level", help="Logging level: debug | info | warning."),
+    log_level: Optional[str] = typer.Option(
+        None, "--log-level", help="Logging level: debug | info | warning. [default: info]"
+    ),
 ) -> None:
     """Watch an input file and auto-regenerate the output on every save."""
+    job_cfg = load_job_config(config)
+
+    input_file = pick(input_file, job_cfg.input)
+    output = pick(output, job_cfg.output)
+    template = pick(template, job_cfg.template)
+    slides_md = pick(slides_md, job_cfg.slides_md)
+    llm_provider = pick(llm_provider, job_cfg.llm_provider)
+    llm_model = pick(llm_model, job_cfg.llm_model)
+    validate = pick(validate, job_cfg.validate)
+    if validate is None:
+        validate = True
+    debounce = pick(debounce, job_cfg.debounce)
+    if debounce is None:
+        debounce = 1.0
+    log_level = pick(log_level, job_cfg.log_level) or "info"
+    output_type = OutputFormat(pick(output_type.value if output_type else None, job_cfg.output_type) or "pptx")
+
     _setup_logging(log_level)
     logger = logging.getLogger("text2officeprocessor.watch")
+
+    if input_file is None or output is None:
+        typer.echo(
+            "[ERROR] --input and --output are required (either as flags or via --config's job.input/job.output).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     if not input_file.exists():
         typer.echo(f"[ERROR] Input file not found: {input_file}", err=True)
@@ -559,7 +670,7 @@ def watch(
         raise typer.Exit(code=1)
 
     provider = None
-    resolved_llm_name, llm_cfg = resolve_provider_selection(llm_provider, llm_model)
+    resolved_llm_name, llm_cfg = resolve_provider_selection(llm_provider, llm_model, job_cfg.llm_settings or None)
     if resolved_llm_name:
         try:
             provider = build_provider(resolved_llm_name, llm_cfg)

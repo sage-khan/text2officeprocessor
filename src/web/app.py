@@ -465,7 +465,7 @@ _HTML = r"""\
     Text<span class="logo-dot">2</span>OfficeProcessor
   </a>
   <div class="nav-right">
-    <span class="nav-badge">v0.5.2</span>
+    <span class="nav-badge">v0.5.3</span>
     <button class="theme-btn" id="theme-toggle" title="Toggle dark mode">🌙</button>
   </div>
 </nav>
@@ -877,7 +877,7 @@ def create_app():
             "or install all web extras: pip install text2officeprocessor[web]"
         )
 
-    app = FastAPI(title="Text2OfficeProcessor Web UI", version="0.5.2", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Text2OfficeProcessor Web UI", version="0.5.3", docs_url=None, redoc_url=None)
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index():

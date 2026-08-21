@@ -109,6 +109,43 @@ text2officeprocessor convert \
   --config my-rules.yaml
 ```
 
+### Unified job config — one file instead of a long flag list
+
+`--config` accepts a single YAML file that can supply everything `convert` / `batch` / `watch`
+would otherwise need as separate flags — input/template/output paths, output type, LLM provider
+selection (including an inline API key or a local endpoint's `base_url`), and the
+validate/overflow-strategy switches — under `job:` and `llm:` keys:
+
+```yaml
+# job.yaml
+job:
+  input: content.md
+  template: templates/my-template.pptx
+  output: outputs/deck.pptx
+  type: pptx
+  validate: true
+  overflow_strategy: auto
+
+llm:
+  default_provider: claude
+  providers:
+    claude:
+      model: claude-3-5-sonnet-20241022
+      api_key: sk-ant-...          # optional; falls back to ANTHROPIC_API_KEY
+    ollama:                        # kept around so `--llm ollama` still works without editing this file
+      base_url: http://localhost:11434
+      model: llama3.2:1b
+```
+
+```bash
+text2officeprocessor convert --config job.yaml
+```
+
+Explicit CLI flags always win over the file, so `--output other.pptx` on top of `--config job.yaml`
+only overrides the output path. The same file may also carry the rules sections described below
+(`validation`, `sanitization`, `placeholder_map`, ...) — one file covers both concerns. `batch` uses
+`job.input_dir` / `job.output_dir` / `job.pattern` / `job.fail_fast` in place of `job.input` / `job.output`.
+
 ### Batch convert an entire directory
 
 ```bash

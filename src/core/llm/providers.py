@@ -79,9 +79,9 @@ class OllamaProvider(LLMProvider):
 class OpenAIProvider(LLMProvider):
     """OpenAI API provider (GPT-3.5 / GPT-4 family)."""
 
-    def __init__(self, model: str = "gpt-4o-mini") -> None:
+    def __init__(self, model: str = "gpt-4o-mini", api_key: str | None = None) -> None:
         self.model = model
-        self._api_key = os.environ.get("OPENAI_API_KEY", "")
+        self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
 
     def generate(self, prompt: str) -> str:
         if not self._api_key:
@@ -102,9 +102,9 @@ class OpenAIProvider(LLMProvider):
 class ClaudeProvider(LLMProvider):
     """Anthropic Claude provider."""
 
-    def __init__(self, model: str = "claude-3-haiku-20240307") -> None:
+    def __init__(self, model: str = "claude-3-haiku-20240307", api_key: str | None = None) -> None:
         self.model = model
-        self._api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
 
     def generate(self, prompt: str) -> str:
         if not self._api_key:
@@ -126,9 +126,9 @@ class ClaudeProvider(LLMProvider):
 class OpenRouterProvider(LLMProvider):
     """OpenRouter API provider (multi-model gateway)."""
 
-    def __init__(self, model: str = "mistralai/mistral-7b-instruct") -> None:
+    def __init__(self, model: str = "mistralai/mistral-7b-instruct", api_key: str | None = None) -> None:
         self.model = model
-        self._api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
         self.base_url = "https://openrouter.ai/api/v1"
 
     def generate(self, prompt: str) -> str:
@@ -160,9 +160,9 @@ class OpenRouterProvider(LLMProvider):
 class GroqProvider(LLMProvider):
     """Groq cloud LLM provider (fast inference)."""
 
-    def __init__(self, model: str = "llama3-8b-8192") -> None:
+    def __init__(self, model: str = "llama3-8b-8192", api_key: str | None = None) -> None:
         self.model = model
-        self._api_key = os.environ.get("GROQ_API_KEY", "")
+        self._api_key = api_key or os.environ.get("GROQ_API_KEY", "")
 
     def generate(self, prompt: str) -> str:
         if not self._api_key:
@@ -183,10 +183,15 @@ class GroqProvider(LLMProvider):
 class VLLMProvider(LLMProvider):
     """Local/remote vLLM provider (OpenAI-compatible API)."""
 
-    def __init__(self, base_url: str = "http://localhost:8000/v1", model: str = "mistralai/Mistral-7B-Instruct-v0.2") -> None:
+    def __init__(
+        self,
+        base_url: str = "http://localhost:8000/v1",
+        model: str = "mistralai/Mistral-7B-Instruct-v0.2",
+        api_key: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self._api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
+        self._api_key = api_key or os.environ.get("VLLM_API_KEY", "EMPTY")
 
     def generate(self, prompt: str) -> str:
         try:

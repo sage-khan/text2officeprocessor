@@ -29,13 +29,19 @@ def load_llm_config() -> dict[str, Any]:
 def resolve_provider_selection(
     requested_provider: str | None,
     requested_model: str | None,
+    llm_config_override: dict[str, Any] | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     """
     Resolve provider + merged config using llm_config.yaml.
 
+    Args:
+        llm_config_override: When provided (e.g. the `llm:` section of a unified
+            `--config` job file), used in place of the auto-discovered
+            llm_config.yaml — same shape: {default_provider, providers: {...}}.
+
     Returns (None, {}) when the user explicitly requests no LLM.
     """
-    cfg = load_llm_config()
+    cfg = llm_config_override if llm_config_override is not None else load_llm_config()
     default_provider = str(cfg.get("default_provider", "ollama")).strip().lower()
     providers_cfg = cfg.get("providers", {}) if isinstance(cfg.get("providers"), dict) else {}
 
